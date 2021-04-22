@@ -1,8 +1,10 @@
 ﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System;
 using System.Threading.Tasks;
 using Microsoft.DotNet.Interactive.Commands;
+using Microsoft.DotNet.Interactive.Connection;
 
 namespace Microsoft.DotNet.Interactive
 {
@@ -10,20 +12,29 @@ namespace Microsoft.DotNet.Interactive
         Kernel,
         IKernelCommandHandler<SubmitCode>
     {
+        private readonly KernelClientBase _client;
         public const string DefaultKernelName = "javascript";
 
-        public JavaScriptKernel() : base(DefaultKernelName)
+        public JavaScriptKernel(KernelClientBase client = null) : base(DefaultKernelName)
         {
+            _client = client;
         }
+
         public Task HandleAsync(
             SubmitCode command,
             KernelInvocationContext context)
         {
-            var scriptContent = new ScriptContent(command.Code);
+            return FrontendEnvironment.ExecuteClientScript(command.Code, context);
+        }
 
-            context.Display(scriptContent);
+        protected override Func<TCommand, KernelInvocationContext, Task> CreateDefaultHandlerForCommandType<TCommand>()
+        {
+            return (kernelCommand, _) => ForwardCommand(kernelCommand);
+        }
 
-            return Task.CompletedTask;
+        private Task ForwardCommand(KernelCommand command)
+        {
+            return _client?.SendAsync(command) ?? Task.CompletedTask;
         }
     }
 }

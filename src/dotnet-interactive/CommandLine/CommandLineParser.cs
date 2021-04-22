@@ -30,7 +30,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Pocket;
 using Recipes;
-using XPlot.DotNet.Interactive.KernelExtensions;
 using static Pocket.Logger;
 
 using CommandHandler = System.CommandLine.Invocation.CommandHandler;
@@ -73,7 +72,7 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
         {
             var operation = Log.OnEnterAndExit();
 
-            if (services == null)
+            if (services is null)
             {
                 throw new ArgumentNullException(nameof(services));
             }
@@ -143,7 +142,6 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                         }
                     }
 
-                    
                 });
 
             var verboseOption = new Option<bool>(
@@ -221,7 +219,8 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                     httpPortRangeOption,
                     new Argument<FileInfo>
                     {
-                        Name = "connection-file"
+                        Name = "connection-file",
+                        Description = "The path to a connection file provided by Jupyter"
                     }.ExistingOnly()
                 };
 
@@ -241,8 +240,8 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
 
                 Task<int> JupyterHandler(StartupOptions startupOptions, JupyterOptions options, IConsole console, InvocationContext context, CancellationToken cancellationToken)
                 {
-                    var frontendEnvironment = new HtmlNotebookFrontedEnvironment();
-                    var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions);
+                    var frontendEnvironment = new HtmlNotebookFrontendEnvironment();
+                    var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions, null);
                     services.AddKernel(kernel);
 
                     services.AddSingleton(c => ConnectionInformation.Load(options.ConnectionFile))
@@ -303,7 +302,7 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                     (startupOptions, options, console, context) =>
                     {
                         var frontendEnvironment = new BrowserFrontendEnvironment();
-                        var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions);
+                        var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions, null);
                         services.AddKernel(kernel);
 
                         onServerStarted ??= () =>
@@ -371,26 +370,31 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                     workingDirOption
                 };
 
-                stdIOCommand.Handler = CommandHandler.Create<StartupOptions, StdIOOptions, IConsole, InvocationContext, CancellationToken>(
-                    (startupOptions, options, console, context, cancellationToken) =>
+                stdIOCommand.Handler = CommandHandler.Create<StartupOptions, StdIOOptions, IConsole, InvocationContext>(
+                    (startupOptions, options, console, context) =>
                     {
                       
                         FrontendEnvironment frontendEnvironment = startupOptions.EnableHttpApi 
-                            ? new HtmlNotebookFrontedEnvironment() 
+                            ? new HtmlNotebookFrontendEnvironment() 
                             : new BrowserFrontendEnvironment();
-                        
-                        var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions);
+
+                        var clientSideKernelClient = startupOptions.EnableHttpApi  ? new SignalRBackchannelKernelClient(): null;
+
+                        var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions, clientSideKernelClient);
                         services.AddKernel(kernel);
 
-                        kernel.UseQuitCommand(disposeOnQuit, cancellationToken);
+                        kernel.UseQuitCommand();
                         
                         var kernelServer = kernel.CreateKernelServer(startupOptions.WorkingDir);
 
                         if (startupOptions.EnableHttpApi)
                         {
+                            services.AddSingleton(clientSideKernelClient);
+                            kernel.UseKernelClientConnection(new ConnectClientKernel(clientSideKernelClient));
+
                             if (context.ParseResult.Directives.Contains("vscode"))
                             {
-                                ((HtmlNotebookFrontedEnvironment) frontendEnvironment).RequiresAutomaticBootstrapping =
+                                ((HtmlNotebookFrontendEnvironment)frontendEnvironment).RequiresAutomaticBootstrapping =
                                     false;
                             }
 
@@ -402,8 +406,6 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                             return startHttp(startupOptions, console, startServer, context);
                         }
                         
-                        disposeOnQuit.Add(kernel);
-
                         return startStdIO(
                             startupOptions,
                             kernelServer,
@@ -452,21 +454,23 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
         private static CompositeKernel CreateKernel(
             string defaultKernelName,
             FrontendEnvironment frontendEnvironment,
-            StartupOptions startupOptions)
+            StartupOptions startupOptions,
+            KernelClientBase kernelClient)
         {
             using var _ = Log.OnEnterAndExit("Creating Kernels");
 
             var compositeKernel = new CompositeKernel();
             compositeKernel.FrontendEnvironment = frontendEnvironment;
 
+            // TODO: temporary measure to support vscode integrations
+            compositeKernel.Add(new SQLKernel());
+
             compositeKernel.Add(
                 new CSharpKernel()
-                    .UseDefaultFormatting()
                     .UseNugetDirective()
                     .UseKernelHelpers()
                     .UseJupyterHelpers()
                     .UseWho()
-                    .UseXplot()
                     .UseMathAndLaTeX()
                     .UseDotNetVariableSharing()
                     .UseAspNetCore(),
@@ -479,7 +483,6 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                     .UseKernelHelpers()
                     .UseWho()
                     .UseDefaultNamespaces()
-                    .UseXplot()
                     .UseMathAndLaTeX()
                     .UseDotNetVariableSharing(),
                 new[] { "f#", "F#" });
@@ -487,13 +490,12 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
             compositeKernel.Add(
                 new PowerShellKernel()
                     .UseJupyterHelpers()
-                    .UseXplot()
                     .UseProfiles()
                     .UseDotNetVariableSharing(),
                 new[] { "powershell" });
 
             compositeKernel.Add(
-                new JavaScriptKernel(),
+                new JavaScriptKernel(kernelClient),
                 new[] { "js" });
 
             compositeKernel.Add(
@@ -505,8 +507,8 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
 
             var kernel = compositeKernel
                          .UseDefaultMagicCommands()
-                         .UseLog()
-                         .UseAbout()
+                         .UseLogMagicCommand()
+                         .UseAboutMagicCommand()
                          .UseKernelClientConnection(new ConnectNamedPipe())
                          .UseKernelClientConnection(new ConnectSignalR());
 
@@ -515,14 +517,14 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                 kernel.LogEventsToPocketLogger();
             }
 
-            SetUpFormatters(frontendEnvironment, startupOptions, TimeSpan.FromSeconds(15));
+            SetUpFormatters(frontendEnvironment);
 
             kernel.DefaultKernelName = defaultKernelName;
          
             return kernel;
         }
 
-        public static void SetUpFormatters(FrontendEnvironment frontendEnvironment, StartupOptions startupOptions, TimeSpan apiUriTimeout)
+        public static void SetUpFormatters(FrontendEnvironment frontendEnvironment)
         {
             switch (frontendEnvironment)
             {
@@ -538,40 +540,12 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
 
                     Formatter.Register<LaTeXString>((laTeX, writer) => writer.Write(laTeX.ToString()), "text/latex");
                     Formatter.Register<MathString>((math, writer) => writer.Write(math.ToString()), "text/latex");
-                    if (startupOptions.EnableHttpApi && 
-                        browserFrontendEnvironment is HtmlNotebookFrontedEnvironment frontedEnvironment)
+                    Formatter.Register<ScriptContent>((script, writer) =>
                     {
-                        Formatter.Register<ScriptContent>((script, writer) =>
-                        {
-                            if (!Task.Run(async () =>
-                            {
-                                var apiUri = await frontedEnvironment.GetApiUriAsync();
-                                var fullCode =
-                                    $@"if (typeof window.createDotnetInteractiveClient === typeof Function) {{
-createDotnetInteractiveClient('{apiUri.AbsoluteUri}').then(function (interactive) {{
-let notebookScope = getDotnetInteractiveScope('{apiUri.AbsoluteUri}');
-{script.ScriptValue}
-}});
-}}";
-                                IHtmlContent content =
-                                    PocketViewTags.script[type: "text/javascript"](fullCode.ToHtmlContent());
-                                content.WriteTo(writer, HtmlEncoder.Default);
-                            }).Wait(apiUriTimeout))
-                            {
-                                throw new TimeoutException("Timeout resolving the kernel's HTTP endpoint. Please try again.");
-                            }
-
-                        }, HtmlFormatter.MimeType);
-                    }
-                    else
-                    {
-                        Formatter.Register<ScriptContent>((script, writer) =>
-                        {
-                            IHtmlContent content =
-                                PocketViewTags.script[type: "text/javascript"](script.ScriptValue.ToHtmlContent());
-                            content.WriteTo(writer, HtmlEncoder.Default);
-                        }, HtmlFormatter.MimeType);
-                    }
+                        IHtmlContent content =
+                            PocketViewTags.script[type: "text/javascript"](script.ScriptValue.ToHtmlContent());
+                        content.WriteTo(writer, HtmlEncoder.Default);
+                    }, HtmlFormatter.MimeType);
 
                     break;
 

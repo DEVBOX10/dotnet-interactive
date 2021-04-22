@@ -25,7 +25,7 @@ namespace Microsoft.DotNet.Interactive
 
         private void EnsureMiddlewarePipelineIsInitialized()
         {
-            if (_pipeline == null)
+            if (_pipeline is null)
             {
                 _pipeline = BuildPipeline();
             }
@@ -69,8 +69,6 @@ namespace Microsoft.DotNet.Interactive
                             {
                                 await first.func(cmd1, ctx1, async (cmd2, ctx2) =>
                                 {
-                                    Debug.WriteLine($"{first.name}: {cmd1}");
-
                                     await second.func(cmd2, ctx2, next);
                                 });
                             }

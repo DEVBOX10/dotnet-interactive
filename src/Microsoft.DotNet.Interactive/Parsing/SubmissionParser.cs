@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Builder;
-using System.CommandLine.IO;
 using System.CommandLine.Parsing;
 using System.IO;
 using System.Linq;
@@ -83,6 +82,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
             var tree = Parse(code, originalCommand.TargetKernelName);
             var nodes = tree.GetRoot().ChildNodes.ToArray();
             var targetKernelName = originalCommand.TargetKernelName ?? KernelLanguage;
+            var lastKernelUri = originalCommand.KernelUri;
             KernelNameDirectiveNode lastKernelNameNode = null;
 
             foreach (var node in nodes)
@@ -119,7 +119,10 @@ namespace Microsoft.DotNet.Interactive.Parsing
                         var directiveCommand = new DirectiveCommand(
                             parseResult,
                             originalCommand,
-                            directiveNode);
+                            directiveNode)
+                        {
+                            TargetKernelName = targetKernelName
+                        };
 
                         if (directiveNode is KernelNameDirectiveNode kernelNameNode)
                         {
@@ -129,7 +132,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
                         if (parseResult.CommandResult.Command.Name == "#r")
                         {
-                            var value = parseResult.CommandResult.GetArgumentValueOrDefault<PackageReferenceOrFileInfo>("package");
+                            var value = parseResult.ValueForArgument<PackageReferenceOrFileInfo>("package");
 
                             if (value.Value is FileInfo)
                             {
@@ -137,18 +140,25 @@ namespace Microsoft.DotNet.Interactive.Parsing
                             }
                             else
                             {
+                                directiveCommand.KernelUri = lastKernelUri;
+                                directiveCommand.TargetKernelName = targetKernelName;
                                 AddHoistedCommand(directiveCommand);
                                 nugetRestoreOnKernels.Add(targetKernelName);
                             }
                         }
                         else if (parseResult.CommandResult.Command.Name == "#i")
                         {
+                            directiveCommand.KernelUri = lastKernelUri;
                             directiveCommand.TargetKernelName = targetKernelName;
                             AddHoistedCommand(directiveCommand);
                         }
                         else
                         {
                             commands.Add(directiveCommand);
+                            if (directiveNode is KernelNameDirectiveNode)
+                            {
+                                hoistedCommandsIndex = commands.Count;
+                            }
                         }
 
                         break;
@@ -170,7 +180,11 @@ namespace Microsoft.DotNet.Interactive.Parsing
                 {
                     var restore = new DirectiveCommand(
                         parser.Parse("#!nuget-restore"),
-                        originalCommand);
+                        originalCommand)
+                    {
+                        KernelUri = kernel.Uri,
+                        TargetKernelName = kernelName
+                    };
                     AddHoistedCommand(restore);
                 }
             }
@@ -217,14 +231,14 @@ namespace Microsoft.DotNet.Interactive.Parsing
             }
         }
 
-        internal IDictionary<string, Func<Parser>> GetSubkernelDirectiveParsers()
+        internal IDictionary<string, (KernelUri kernelUri, Func<Parser> getParser)> GetSubkernelDirectiveParsers()
         {
             if (!(_kernel is CompositeKernel compositeKernel))
             {
                 return null;
             }
 
-            var dict = new Dictionary<string, Func<Parser>>();
+            var dict = new Dictionary<string, (KernelUri , Func<Parser>)>();
 
             for (var i = 0; i < compositeKernel.ChildKernels.Count; i++)
             {
@@ -234,11 +248,11 @@ namespace Microsoft.DotNet.Interactive.Parsing
                 {
                     foreach (var alias in chooseKernelDirective.Aliases)
                     {
-                        dict.Add(alias[2..], GetParser);
+                        dict.Add(alias[2..], GetParser());
                     }
                 }
 
-                Parser GetParser() => childKernel.SubmissionParser.GetDirectiveParser();
+                (KernelUri, Func<Parser>) GetParser() => (childKernel.Uri,() => childKernel.SubmissionParser.GetDirectiveParser());
             }
 
             return dict;
@@ -246,7 +260,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
         internal Parser GetDirectiveParser()
         {
-            if (_directiveParser == null)
+            if (_directiveParser is null)
             {
                 EnsureRootCommandIsInitialized();
 
@@ -254,7 +268,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
                     new CommandLineBuilder(_rootCommand)
                         .ParseResponseFileAs(ResponseFileHandling.Disabled)
                         .UseTypoCorrections()
-                        .UseHelpBuilder(bc => new DirectiveHelpBuilder(bc.Console, _rootCommand.Name))
+                        .UseHelpBuilder(bc => new DirectiveHelpBuilder(_rootCommand.Name))
                         .UseHelp()
                         .UseMiddleware(
                             context =>
@@ -275,7 +289,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
         public void AddDirective(Command command)
         {
-            if (command == null)
+            if (command is null)
             {
                 throw new ArgumentNullException(nameof(command));
             }
@@ -315,7 +329,6 @@ namespace Microsoft.DotNet.Interactive.Parsing
             };
 
             var helpBuilder = new DirectiveHelpBuilder(
-                new TestConsole(),
                 parseResult.Parser.Configuration.RootCommand.Name);
 
             return new CompletionItem(
@@ -325,7 +338,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
                 sortText: name,
                 insertText: name,
                 documentation:
-                symbol != null
+                symbol is not null
                     ? helpBuilder.GetHelpForSymbol(symbol)
                     : null);
         }

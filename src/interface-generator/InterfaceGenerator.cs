@@ -7,9 +7,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
-using Newtonsoft.Json;
 
 namespace Microsoft.DotNet.Interactive.InterfaceGen.App
 {
@@ -18,6 +18,7 @@ namespace Microsoft.DotNet.Interactive.InterfaceGen.App
         private static readonly Dictionary<Type, string> WellKnownTypes = new Dictionary<Type, string>
         {
             { typeof(bool), "boolean" },
+            { typeof(byte), "number" },
             { typeof(int), "number" },
             { typeof(object), "any" },
             { typeof(string), "string" },
@@ -35,6 +36,9 @@ namespace Microsoft.DotNet.Interactive.InterfaceGen.App
 
         private static readonly HashSet<string> OptionalFields = new HashSet<string>
         {
+            $"{nameof(CompletionsProduced)}.{nameof(CompletionsProduced.LinePositionSpan)}",
+            $"{nameof(DisplayEvent)}.{nameof(DisplayEvent.ValueId)}",
+            $"{nameof(HoverTextProduced)}.{nameof(HoverTextProduced.LinePositionSpan)}",
             $"{nameof(KernelCommand)}.{nameof(KernelCommand.TargetKernelName)}",
             $"{nameof(SubmitCode)}.{nameof(SubmitCode.SubmissionType)}"
         };
@@ -123,7 +127,7 @@ namespace Microsoft.DotNet.Interactive.InterfaceGen.App
             }
 
             var baseType = type.EffectiveBaseType();
-            var extends = baseType == null
+            var extends = baseType is null
                 ? ""
                 : $"extends {GetTypeScriptTypeName(baseType)} ";
 
@@ -136,7 +140,7 @@ namespace Microsoft.DotNet.Interactive.InterfaceGen.App
 
             builder.AppendLine("}");
 
-            if (baseType != null)
+            if (baseType is not null)
             {
                 GenerateType(builder, baseType, emittedTypes, requiredTypes);
             }
@@ -155,7 +159,7 @@ namespace Microsoft.DotNet.Interactive.InterfaceGen.App
 
             void HandlePropertyType(Type propertyType)
             {
-                if (requiredTypes != null)
+                if (requiredTypes is not null)
                 {
                     requiredTypes.Add(propertyType);
                 }
@@ -213,7 +217,7 @@ namespace Microsoft.DotNet.Interactive.InterfaceGen.App
 
             if (type.ShouldBeArray())
             {
-                return $"Array<{GetTypeScriptTypeName(type.GenericTypeArguments[0])}>";
+                return $"Array<{GetTypeScriptTypeName(type.GetArrayElementType())}>";
             }
 
             if (type.IsNullable())
@@ -233,7 +237,7 @@ namespace Microsoft.DotNet.Interactive.InterfaceGen.App
 
             if (type.ShouldBeArray())
             {
-                return type.GenericTypeArguments[0];
+                return type.GetArrayElementType();
             }
 
             if (type.IsNullable())
@@ -249,7 +253,11 @@ namespace Microsoft.DotNet.Interactive.InterfaceGen.App
             return type
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.DeclaringType == type)
-                .Where(p => p.GetCustomAttribute(typeof(JsonIgnoreAttribute)) == null);
+                .Where(p =>
+                {
+                    var jsonIgnore = p.GetCustomAttribute(typeof(JsonIgnoreAttribute)) as JsonIgnoreAttribute;
+                    return jsonIgnore is null || jsonIgnore.Condition != JsonIgnoreCondition.Always;
+                });
         }
     }
 }

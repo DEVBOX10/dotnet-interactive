@@ -12,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
+
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.Events;
@@ -28,10 +29,10 @@ namespace Microsoft.DotNet.Interactive
         IKernelCommandHandler<ParseNotebook>,
         IKernelCommandHandler<SerializeNotebook>
     {
-        private readonly ConcurrentQueue<PackageAdded> _packagesToCheckForExtensions = new ConcurrentQueue<PackageAdded>();
-        private readonly List<Kernel> _childKernels = new List<Kernel>();
+        private readonly ConcurrentQueue<PackageAdded> _packagesToCheckForExtensions = new();
+        private readonly List<Kernel> _childKernels = new();
         private readonly Dictionary<string, Kernel> _kernelsByNameOrAlias;
-        private readonly AssemblyBasedExtensionLoader _extensionLoader = new AssemblyBasedExtensionLoader();
+        private readonly AssemblyBasedExtensionLoader _extensionLoader = new();
         private string _defaultKernelName;
         private Command _connectDirective;
 
@@ -39,14 +40,16 @@ namespace Microsoft.DotNet.Interactive
         {
             ListenForPackagesToScanForExtensions();
 
-            _kernelsByNameOrAlias = new Dictionary<string, Kernel>();
-            _kernelsByNameOrAlias.Add(Name, this);
+            _kernelsByNameOrAlias = new Dictionary<string, Kernel>
+            {
+                [Name] = this
+            };
         }
 
         private void ListenForPackagesToScanForExtensions() =>
             RegisterForDisposal(KernelEvents
                                 .OfType<PackageAdded>()
-                                .Where(pa => pa?.PackageReference.PackageRoot != null)
+                                .Where(pa => pa?.PackageReference.PackageRoot is not null)
                                 .Distinct(pa => pa.PackageReference.PackageRoot)
                                 .Subscribe(added => _packagesToCheckForExtensions.Enqueue(added)));
 
@@ -62,25 +65,26 @@ namespace Microsoft.DotNet.Interactive
 
         public void Add(Kernel kernel, IReadOnlyCollection<string> aliases = null)
         {
-            if (kernel == null)
+            if (kernel is null)
             {
                 throw new ArgumentNullException(nameof(kernel));
             }
 
-            if (kernel.ParentKernel != null)
+            if (kernel.ParentKernel is not null)
             {
                 throw new InvalidOperationException($"Kernel \"{kernel.Name}\" already has a parent: \"{kernel.ParentKernel.Name}\".");
             }
 
             kernel.ParentKernel = this;
             kernel.AddMiddleware(LoadExtensions);
+            kernel.SetScheduler(Scheduler);
 
             AddChooseKernelDirective(kernel, aliases);
 
             _childKernels.Add(kernel);
 
             _kernelsByNameOrAlias.Add(kernel.Name, kernel);
-            if (aliases is {})
+            if (aliases is { })
             {
                 foreach (var alias in aliases)
                 {
@@ -106,6 +110,7 @@ namespace Microsoft.DotNet.Interactive
 
         public NotebookDocument ParseNotebook(string fileName, byte[] rawData)
         {
+            // FIX: (ParseNotebook) make this internal, make name congruent with SerializeNotebook
             var kernelLanguageAliases = _kernelsByNameOrAlias.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name);
             kernelLanguageAliases.Remove(Name); // remove `.NET`
             var notebook = NotebookFileFormatHandler.Parse(fileName, rawData, DefaultKernelName, kernelLanguageAliases);
@@ -125,7 +130,7 @@ namespace Microsoft.DotNet.Interactive
         {
             var chooseKernelCommand = kernel.ChooseKernelDirective;
 
-            if (aliases is {})
+            if (aliases is { })
             {
                 foreach (var alias in aliases)
                 {
@@ -153,7 +158,7 @@ namespace Microsoft.DotNet.Interactive
                          packageRootDir,
                          "interactive-extensions",
                          "dotnet"));
-                
+
                 if (extensionDir.Exists)
                 {
                     await LoadExtensionsFromDirectoryAsync(
@@ -167,9 +172,7 @@ namespace Microsoft.DotNet.Interactive
 
         protected override void SetHandlingKernel(KernelCommand command, KernelInvocationContext context)
         {
-            var kernel = GetHandlingKernel(command, context);
-
-            context.HandlingKernel = kernel;
+            context.HandlingKernel = GetHandlingKernel(command, context);
         }
 
         private Kernel GetHandlingKernel(
@@ -178,13 +181,13 @@ namespace Microsoft.DotNet.Interactive
         {
             var targetKernelName = command switch
             {
-                { } kcb => kcb.TargetKernelName ?? DefaultKernelName,
+                { } _ => GetKernelNameFromCommand() ?? DefaultKernelName,
                 _ => DefaultKernelName
             };
 
             Kernel kernel;
 
-            if (targetKernelName != null)
+            if (targetKernelName is not null)
             {
                 _kernelsByNameOrAlias.TryGetValue(targetKernelName, out kernel);
             }
@@ -199,24 +202,49 @@ namespace Microsoft.DotNet.Interactive
             }
 
             return kernel ?? this;
+
+            string GetKernelNameFromCommand()
+            {
+                return _childKernels.FirstOrDefault(k => k.Uri.Equals(command.KernelUri))?.Name;
+            }
+        }
+
+        private protected override KernelUri GetHandlingKernelUri(
+            KernelCommand command)
+        {
+            var targetKernelName = command switch
+            {
+                { } kcb => kcb.TargetKernelName ?? DefaultKernelName,
+                _ => DefaultKernelName
+            };
+
+            Kernel kernel;
+
+            if (targetKernelName is not null)
+            {
+                _kernelsByNameOrAlias.TryGetValue(targetKernelName, out kernel);
+            }
+            else
+            {
+                kernel = _childKernels.Count switch
+                {
+                    0 => this,
+                    1 => _childKernels[0],
+                    _ => null
+                };
+            }
+
+            return (kernel ?? this).Uri;
         }
 
         internal override async Task HandleAsync(
             KernelCommand command,
             KernelInvocationContext context)
         {
-            var kernel = context.HandlingKernel;
-
-            if (kernel is null)
-            {
-                throw new NoSuitableKernelException(command);
-            }
-
-            await kernel.RunDeferredCommandsAsync();
-
-            if (kernel != this)
+            if (!command.KernelUri.Equals(Uri))
             {
                 // route to a subkernel
+                var kernel = ChildKernels.Single(ck => ck.Uri.Equals(command.KernelUri));
                 await kernel.Pipeline.SendAsync(command, context);
             }
             else
@@ -226,7 +254,7 @@ namespace Microsoft.DotNet.Interactive
         }
 
         private protected override IEnumerable<Parser> GetDirectiveParsersForCompletion(
-            DirectiveNode directiveNode, 
+            DirectiveNode directiveNode,
             int requestPosition)
         {
             var upToCursor =
@@ -258,7 +286,7 @@ namespace Microsoft.DotNet.Interactive
                     yield return compositeKernelDirectiveParser;
                 }
 
-                bool IsDirectiveDefinedIn(Parser parser) => 
+                bool IsDirectiveDefinedIn(Parser parser) =>
                     parser.Configuration.RootCommand.Children.GetByAlias(directiveName) is { };
             }
             else
@@ -296,15 +324,14 @@ namespace Microsoft.DotNet.Interactive
             ConnectKernelCommand<TOptions> connectionCommand)
             where TOptions : KernelConnectionOptions
         {
-            // FIX: (AddKernelConnection) use a global option
             var kernelNameOption = new Option<string>(
                 "--kernel-name",
                 "The name of the subkernel to be added");
 
-            if (_connectDirective == null)
+            if (_connectDirective is null)
             {
                 _connectDirective = new Command(
-                    "#!connect", 
+                    "#!connect",
                     "Connects additional subkernels");
 
                 _connectDirective.Add(kernelNameOption);
@@ -318,7 +345,10 @@ namespace Microsoft.DotNet.Interactive
                 {
                     var connectedKernel = await connectionCommand.CreateKernelAsync(options, context);
 
-                    connectedKernel.Name = options.KernelName;
+                    if (string.IsNullOrWhiteSpace(connectedKernel.Name))
+                    {
+                        connectedKernel.Name = options.KernelName;
+                    }
 
                     Add(connectedKernel);
 

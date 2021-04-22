@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using FluentAssertions.Extensions;
 using Microsoft.DotNet.Interactive.Commands;
+using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Tests.Utility;
@@ -16,7 +17,6 @@ using Xunit.Abstractions;
 #pragma warning disable 8509
 namespace Microsoft.DotNet.Interactive.Tests
 {
-    [LogTestNamesToPocketLogger]
     public class LanguageKernelFormattingTests : LanguageKernelTestBase
     {
         public const string PlainTextBegin = "<div class=\"dni-plaintext\">";
@@ -24,6 +24,18 @@ namespace Microsoft.DotNet.Interactive.Tests
 
         public LanguageKernelFormattingTests(ITestOutputHelper output) : base(output)
         {
+        }
+
+        protected override CSharpKernel CreateCSharpKernel()
+        {
+            var cSharpKernel = base.CreateCSharpKernel();
+
+            cSharpKernel.DeferCommand(new SubmitCode($@"
+using static {typeof(PocketViewTags).FullName};
+using {typeof(PocketView).Namespace};
+"));
+
+            return cSharpKernel;
         }
 
         [Theory]
@@ -55,7 +67,7 @@ namespace Microsoft.DotNet.Interactive.Tests
                                    v.MimeType == "text/html" &&
                                    v.Value.ToString().Contains(expectedContent));
         }
-        
+
         [Theory]
         [InlineData(Language.CSharp, "display(\"<test></test>\")", "<test></test>")]
         [InlineData(Language.FSharp, "display(\"<test></test>\")", "<test></test>")]
@@ -68,18 +80,16 @@ namespace Microsoft.DotNet.Interactive.Tests
 
             var result = await kernel.SendAsync(new SubmitCode(submission));
 
-            var valueProduced = await result
-                                      .KernelEvents
-                                      .OfType<DisplayedValueProduced>()
-                                      .Timeout(5.Seconds())
-                                      .FirstAsync();
+            var events = result.KernelEvents.ToSubscribedList();
 
-            valueProduced
-                .FormattedValues
-                .Should()
-                .ContainSingle(v =>
-                                   v.MimeType == "text/plain" &&
-                                   v.Value.ToString().Contains(expectedContent));
+            events.Should()
+                  .ContainSingle<DisplayedValueProduced>()
+                  .Which
+                  .FormattedValues
+                  .Should()
+                  .ContainSingle(v =>
+                                     v.MimeType == "text/plain" &&
+                                     v.Value.ToString().Contains(expectedContent));
         }
 
         [Theory]
@@ -289,15 +299,15 @@ namespace Microsoft.DotNet.Interactive.Tests
                 Language.FSharp => $@"CSS(""{cssContent}"")",
             };
 
-            await kernel.SendAsync(new SubmitCode(submission));
+            var result = await kernel.SendAsync(new SubmitCode(submission));
 
-            var formatted =
-                KernelEvents
-                    .OfType<DisplayedValueProduced>()
-                    .SelectMany(v => v.FormattedValues)
-                    .ToArray();
+            var events = result.KernelEvents.ToSubscribedList();
 
-            formatted
+            events
+                .Should()
+                .ContainSingle<DisplayedValueProduced>()
+                .Which
+                .FormattedValues
                 .Should()
                 .ContainSingle(v =>
                                    v.MimeType == "text/html" &&
@@ -408,6 +418,7 @@ f();"
             KernelEvents.Should()
                         .NotContain(e => e is CommandFailed);
         }
+
         [Fact]
         public async Task FSharpKernel_opens_System_IO()
         {
@@ -418,16 +429,21 @@ f();"
             KernelEvents.Should()
                         .Contain(e => e is CommandSucceeded);
         }
+
         [Fact]
         public async Task FSharpKernel_opens_System_Text()
         {
             var kernel = CreateKernel(Language.FSharp);
 
-            await kernel.SubmitCodeAsync("let t = StringBuilder()");
+            var result = await kernel.SubmitCodeAsync("let t = StringBuilder()");
 
-            KernelEvents.Should()
-                        .Contain(e => e is CommandSucceeded);
+            var events = result.KernelEvents.ToSubscribedList();
+
+            events
+                .Should()
+                .ContainSingle<CommandSucceeded>();
         }
+
         [Fact]
         public async Task FSharpKernel_does_not_open_System_Linq()
         {
@@ -438,6 +454,7 @@ f();"
             KernelEvents.Should()
                         .Contain(e => e is CommandFailed);
         }
+
         [Fact]
         public async Task FSharpKernel_does_not_open_System_Threading_Tasks()
         {
@@ -448,6 +465,7 @@ f();"
             KernelEvents.Should()
                         .Contain(e => e is CommandFailed);
         }
+
         [Fact]
         public async Task FSharpKernel_does_not_open_HTML_DSL()
         {

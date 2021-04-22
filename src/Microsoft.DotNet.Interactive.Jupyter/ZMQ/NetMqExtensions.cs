@@ -4,24 +4,22 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using NetMQ;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using Recipes;
 
 namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
 {
-    internal static class NetMQExtensions
+    public static class NetMQExtensions
     {
+        public static bool IsEmptyJson(string source) => Regex.IsMatch(source, @"^\s*{\s*}\s*", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
         public static T DeserializeFromJsonString<T>(string source)
         {
             var ret = default(T);
-            if (!string.IsNullOrWhiteSpace(source))
+            if (!string.IsNullOrWhiteSpace(source) && !IsEmptyJson(source))
             {
-                var sourceObject = JObject.Parse(source);
-                if (sourceObject.HasValues)
-                {
-                    ret = JsonConvert.DeserializeObject<T>(source);
-                }
+                ret = JsonSerializer.Deserialize<T>(source, JsonSerializationExtensions.SerializerOptions);
             }
             return ret;
         }
@@ -29,13 +27,9 @@ namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
         private static Protocol.Message DeserializeMessageContentFromJsonString(string source, string messageType)
         {
             var ret = Protocol.Message.Empty;
-            if (!string.IsNullOrWhiteSpace(source))
+            if (!string.IsNullOrWhiteSpace(source) && !IsEmptyJson(source))
             {
-                var sourceObject = JObject.Parse(source);
-                if (sourceObject.HasValues)
-                {
-                    ret = Protocol.Message.FromJsonString(source, messageType);
-                }
+                ret = Protocol.Message.FromJsonString(source, messageType);
             }
             return ret;
         }
@@ -80,7 +74,7 @@ namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
         public static Message DeserializeMessage(string signature, string headerJson, string parentHeaderJson,
             string metadataJson, string contentJson, IReadOnlyList<IReadOnlyList<byte>> identifiers)
         {
-            var header = JsonConvert.DeserializeObject<Header>(headerJson);
+            var header = JsonSerializer.Deserialize<Header>(headerJson, JsonSerializationExtensions.SerializerOptions);
             var parentHeader = DeserializeFromJsonString<Header>(parentHeaderJson);
             var metaData = MetadataExtensions.DeserializeMetadataFromJsonString(metadataJson);
             var content = DeserializeMessageContentFromJsonString(contentJson, header.MessageType);

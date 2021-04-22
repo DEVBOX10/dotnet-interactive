@@ -31,14 +31,14 @@ namespace Microsoft.DotNet.Interactive.Http
                 })
                 .ConfigureServices(c =>
                 {
-                    if (enableHttpApi && httpProbingSettings != null)
+                    if (enableHttpApi && httpProbingSettings is not null)
                     {
                         c.AddSingleton(httpProbingSettings);
                     }
 
                     c.AddSingleton(httpStartupOptions);
 
-                    if (services != null)
+                    if (services is not null)
                     {
                         foreach (var serviceDescriptor in services)
                         {
@@ -50,7 +50,7 @@ namespace Microsoft.DotNet.Interactive.Http
         }
         public static IServiceCollection AddDotnetInteractiveHttpApi(this IServiceCollection services)
         {
-            services.AddSingleton(c => new KernelHubConnection(c.GetRequiredService<Kernel>()));
+            services.AddSingleton(c => new KernelHubConnection(c.GetRequiredService<Kernel>(), c.GetRequiredService<SignalRBackchannelKernelClient>()));
             services.AddRouting();
             services.AddCors(options =>
             {
@@ -82,15 +82,17 @@ namespace Microsoft.DotNet.Interactive.Http
             {
                 r.Routes.Add(new VariableRouter(kernel));
                 r.Routes.Add(new KernelsRouter(kernel));
-                var htmlNotebookFrontedEnvironment = kernel.FrontendEnvironment as HtmlNotebookFrontedEnvironment;
+                var htmlNotebookFrontendEnvironment = kernel.FrontendEnvironment as HtmlNotebookFrontendEnvironment;
 
-                if (htmlNotebookFrontedEnvironment is { } )
+                if (htmlNotebookFrontendEnvironment is { } )
                 {
-                    r.Routes.Add(new DiscoveryRouter(htmlNotebookFrontedEnvironment));
-                    r.Routes.Add(new HttpApiTunnelingRouter(htmlNotebookFrontedEnvironment));
+                    r.Routes.Add(new DiscoveryRouter(htmlNotebookFrontendEnvironment));
+                    r.Routes.Add(new HttpApiTunnelingRouter(htmlNotebookFrontendEnvironment));
+                    r.Routes.Add(new PublishEventRouter(htmlNotebookFrontendEnvironment));
+                    r.Routes.Add(new ClientExecutionRouter(htmlNotebookFrontendEnvironment));
                 }
 
-                if (htmlNotebookFrontedEnvironment is null || htmlNotebookFrontedEnvironment.RequiresAutomaticBootstrapping)
+                if (htmlNotebookFrontendEnvironment is null || htmlNotebookFrontendEnvironment.RequiresAutomaticBootstrapping)
                 {
                     var enableHttp = new SubmitCode("#!enable-http", kernel.Name);
                     enableHttp.PublishInternalEvents();

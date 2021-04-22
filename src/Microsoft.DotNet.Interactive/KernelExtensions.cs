@@ -22,6 +22,28 @@ namespace Microsoft.DotNet.Interactive
 {
     public static class KernelExtensions
     {
+        public static T UseQuitCommand<T>(this T kernel, Func<Task> onQuitAsync = null) where T : Kernel
+        {
+            kernel.RegisterCommandHandler<Quit>(async (quit, context) =>
+            {
+                if (onQuitAsync is not null)
+                {
+                    await onQuitAsync();
+                }
+                else
+                {
+                    ShutDown();
+                }
+            });
+
+            return kernel;
+
+            void ShutDown() 
+            {
+                Environment.Exit(0);
+            }
+        }
+
         public static Kernel FindKernel(this Kernel kernel, string name)
         {
             var root = kernel
@@ -49,7 +71,7 @@ namespace Microsoft.DotNet.Interactive
             this Kernel kernel,
             KernelCommand command)
         {
-            if (kernel == null)
+            if (kernel is null)
             {
                 throw new ArgumentNullException(nameof(kernel));
             }
@@ -61,7 +83,7 @@ namespace Microsoft.DotNet.Interactive
             this Kernel kernel,
             string code)
         {
-            if (kernel == null)
+            if (kernel is null)
             {
                 throw new ArgumentNullException(nameof(kernel));
             }
@@ -69,7 +91,7 @@ namespace Microsoft.DotNet.Interactive
             return kernel.SendAsync(new SubmitCode(code), CancellationToken.None);
         }
 
-        public static T UseLog<T>(this T kernel)
+        public static T UseLogMagicCommand<T>(this T kernel)
             where T : Kernel
         {
             var command = new Command("#!log", "Enables session logging.");
@@ -87,7 +109,7 @@ namespace Microsoft.DotNet.Interactive
 
                 kernel.AddMiddleware(async (kernelCommand, c, next) =>
                 {
-                    Log(c, kernelCommand.ToLogString());
+                    PublishLogEvent(c, kernelCommand.ToLogString());
 
                     await next(kernelCommand, c);
                 });
@@ -105,23 +127,23 @@ namespace Microsoft.DotNet.Interactive
                                 return;
                             }
 
-                            Log(currentContext, e.ToLogString());
+                            PublishLogEvent(currentContext, e.ToLogString());
                         }
                     }),
                     LogEvents.Subscribe(e =>
                     {
                         if (KernelInvocationContext.Current is {} currentContext)
                         {
-                            Log(currentContext, e.ToLogString());
+                            PublishLogEvent(currentContext, e.ToLogString());
                         }
                     })
                 };
 
                 kernel.RegisterForDisposal(disposable);
 
-                Log(context, "Logging enabled");
+                PublishLogEvent(context, "Logging enabled");
 
-                static void Log(KernelInvocationContext c, string message) => c.Publish(new DiagnosticLogEntryProduced(message));
+                static void PublishLogEvent(KernelInvocationContext c, string message) => c.Publish(new DiagnosticLogEntryProduced(message, c.Command));
             });
 
             kernel.AddDirective(command);
@@ -259,6 +281,19 @@ namespace Microsoft.DotNet.Interactive
         }
 
         [DebuggerStepThrough]
+        public static T LogCommandsToPocketLogger<T>(this T kernel) 
+            where T : Kernel
+        {
+            kernel.AddMiddleware(async (command, context, next) =>
+            {
+                using var _ = Logger.Log.OnEnterAndExit($"Command: {command.ToString().Replace(Environment.NewLine, " ")}");
+
+                await next(command, context);
+            });
+            return kernel;
+        }
+
+        [DebuggerStepThrough]
         public static T LogEventsToPocketLogger<T>(this T kernel)
             where T : Kernel
         {
@@ -296,12 +331,12 @@ namespace Microsoft.DotNet.Interactive
             Action<Kernel> onVisit,
             bool recursive = false)
         {
-            if (kernel == null)
+            if (kernel is null)
             {
                 throw new ArgumentNullException(nameof(kernel));
             }
 
-            if (onVisit == null)
+            if (onVisit is null)
             {
                 throw new ArgumentNullException(nameof(onVisit));
             }
@@ -335,12 +370,12 @@ namespace Microsoft.DotNet.Interactive
             Func<Kernel, Task> onVisit,
             bool recursive = false)
         {
-            if (kernel == null)
+            if (kernel is null)
             {
                 throw new ArgumentNullException(nameof(kernel));
             }
 
-            if (onVisit == null)
+            if (onVisit is null)
             {
                 throw new ArgumentNullException(nameof(onVisit));
             }

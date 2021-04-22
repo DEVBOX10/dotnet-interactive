@@ -8,13 +8,13 @@ using System.Reactive.Subjects;
 using System.Threading.Tasks;
 
 using Microsoft.DotNet.Interactive.Commands;
+using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.Events;
 
-using Newtonsoft.Json;
 
 namespace Microsoft.DotNet.Interactive.Server
 {
-    public class KernelClient : IDisposable
+    public class KernelClient : KernelClientBase, IDisposable
     {
         private readonly IInputTextStream _input;
         private readonly IOutputTextStream _output;
@@ -38,9 +38,9 @@ namespace Microsoft.DotNet.Interactive.Server
         public IObservable<string> Output => _output.OutputObservable;
         public bool IsStarted => _input.IsStarted;
 
-        public IObservable<KernelEvent> KernelEvents => _kernelEvents;
+        public override IObservable<KernelEvent> KernelEvents => _kernelEvents;
 
-        public async Task SendAsync(KernelCommand command, string token = null)
+        public async override Task SendAsync(KernelCommand command, string token = null)
         {
             if (!string.IsNullOrWhiteSpace(token))
             {
@@ -76,17 +76,23 @@ namespace Microsoft.DotNet.Interactive.Server
 
         private void DeserializeAndSendEvent(string line)
         {
+            IKernelEventEnvelope kernelEventEnvelope = null;
             try
             {
-                var kernelEventEnvelope = KernelEventEnvelope.Deserialize(line);
-                _kernelEvents.OnNext(kernelEventEnvelope.Event);
+                kernelEventEnvelope = KernelEventEnvelope.Deserialize(line);
+               
             }
-            catch (JsonReaderException ex)
+            catch (Exception ex)
             {
                 var diagnosticEvent = new DiagnosticLogEntryProduced(
-                    $"Error while parsing command: {ex.Message}\n{line}");
+                    $"Error while parsing command: {ex.Message}\n{line}", KernelCommand.None);
 
                 _kernelEvents.OnNext(diagnosticEvent);
+            }
+
+            if (kernelEventEnvelope is not null)
+            {
+                _kernelEvents.OnNext(kernelEventEnvelope.Event);
             }
         }
 

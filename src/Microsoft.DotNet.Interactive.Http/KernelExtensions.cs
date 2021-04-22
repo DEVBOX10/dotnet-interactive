@@ -21,7 +21,7 @@ namespace Microsoft.DotNet.Interactive.Http
                 {
                     if (context.Command is SubmitCode submitCode)
                     {
-                        var probingUrls = httpProbingSettings != null
+                        var probingUrls = httpProbingSettings is not null
                             ? httpProbingSettings.AddressList
                             : new[]
                             {
@@ -30,7 +30,6 @@ namespace Microsoft.DotNet.Interactive.Http
                         var html =
                             HttpApiBootstrapper.GetHtmlInjection(probingUrls, httpPort?.ToString() ?? Guid.NewGuid().ToString("N"));
                         context.Display(html, "text/html");
-                        context.Complete(submitCode);
                     }
                 })
             };

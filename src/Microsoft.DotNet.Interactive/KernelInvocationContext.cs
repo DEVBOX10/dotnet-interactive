@@ -1,9 +1,8 @@
-﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
+// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
 using System.Collections.Generic;
-using System.Reactive.Disposables;
 using System.Reactive.Subjects;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,47 +10,71 @@ using System.Threading.Tasks;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Utility;
+using Pocket;
+using CompositeDisposable = Pocket.CompositeDisposable;
 
 namespace Microsoft.DotNet.Interactive
 {
     public class KernelInvocationContext : IAsyncDisposable
     {
-        private static readonly AsyncLocal<KernelInvocationContext> _current = new AsyncLocal<KernelInvocationContext>();
+        private static readonly AsyncLocal<KernelInvocationContext> _current = new();
 
-        private readonly ReplaySubject<KernelEvent> _events = new ReplaySubject<KernelEvent>();
+        private readonly ReplaySubject<KernelEvent> _events = new();
 
-        private readonly HashSet<KernelCommand> _childCommands = new HashSet<KernelCommand>();
+        private readonly HashSet<KernelCommand> _childCommands = new();
 
-        private readonly CompositeDisposable _disposables = new CompositeDisposable();
+        private readonly CompositeDisposable _disposables = new();
 
-        private readonly List<Func<KernelInvocationContext, Task>> _onCompleteActions = new List<Func<KernelInvocationContext, Task>>();
+        private readonly List<Func<KernelInvocationContext, Task>> _onCompleteActions = new();
 
         private readonly CancellationTokenSource _cancellationTokenSource;
 
         private KernelInvocationContext(KernelCommand command)
         {
+            var operation = new OperationLogger(
+                args: new object[] { ("KernelCommand", command) },
+                exitArgs: () => new[] { ("KernelCommand", (object)command) },
+                category: nameof(KernelInvocationContext),
+                logOnStart: true);
+
             _cancellationTokenSource = new CancellationTokenSource();
+
             Command = command;
-            CommandToSignalCompletion = command;
+
             Result = new KernelCommandResult(_events);
 
+            _disposables.Add(_cancellationTokenSource);
+
             _disposables.Add(ConsoleOutput.Subscribe(c =>
+            {
+                return new CompositeDisposable
                 {
-                    return new CompositeDisposable
-                    {
-                        c.Out.Subscribe(s => this.DisplayStandardOut(s, command)),
-                        c.Error.Subscribe(s => this.DisplayStandardError(s, command))
-                    };
-                }));
+                    c.Out.Subscribe(s => this.DisplayStandardOut(s, command)),
+                    c.Error.Subscribe(s => this.DisplayStandardError(s, command))
+                };
+            }));
+
+            _disposables.Add(operation);
         }
 
         public KernelCommand Command { get; }
 
         public bool IsComplete { get; private set; }
 
-        public CancellationToken CancellationToken => _cancellationTokenSource.Token;
-
-        internal KernelCommand CommandToSignalCompletion { get; set; }
+        public CancellationToken CancellationToken
+        {
+            get
+            {
+                if (_cancellationTokenSource.IsCancellationRequested)
+                {
+                    return new CancellationToken(true);
+                }
+                else
+                {
+                    return _cancellationTokenSource.Token;
+                }
+            }
+        }
 
         public void Complete(KernelCommand command)
         {
@@ -70,14 +93,43 @@ namespace Microsoft.DotNet.Interactive
             }
         }
 
+        public void Cancel()
+        {
+            if (!IsComplete)
+            {
+                TryCancel();
+                Fail(new OperationCanceledException($"Command :{Command} cancelled."));
+            }
+        }
+
         public void Fail(
             Exception exception = null,
             string message = null)
         {
-            Publish(new CommandFailed(exception, Command, message));
+            if (!IsComplete)
+            {
+                Publish(new CommandFailed(exception, Command, message));
+                _events.OnCompleted();
 
-            _events.OnCompleted();
-            IsComplete = true;
+                TryCancel();
+
+                IsComplete = true;
+            }
+        }
+
+        private void TryCancel()
+        {
+            try
+            {
+                if (!_cancellationTokenSource.IsCancellationRequested)
+                {
+                    _cancellationTokenSource.Cancel();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+
+            }
         }
 
         public void OnComplete(Func<KernelInvocationContext, Task> onComplete)
@@ -94,7 +146,7 @@ namespace Microsoft.DotNet.Interactive
 
             var command = @event.Command;
 
-            if (command == null ||
+            if (command is null ||
                 Command == command ||
                 _childCommands.Contains(command))
             {
@@ -108,7 +160,7 @@ namespace Microsoft.DotNet.Interactive
 
         public static KernelInvocationContext Establish(KernelCommand command)
         {
-            if (_current.Value == null || _current.Value.IsComplete)
+            if (_current.Value is null || _current.Value.IsComplete)
             {
                 var context = new KernelInvocationContext(command);
 
@@ -116,7 +168,10 @@ namespace Microsoft.DotNet.Interactive
             }
             else
             {
-                _current.Value._childCommands.Add(command);
+                if (_current.Value.Command != command)
+                {
+                    _current.Value._childCommands.Add(command);
+                }
             }
 
             return _current.Value;
@@ -126,19 +181,14 @@ namespace Microsoft.DotNet.Interactive
 
         public Kernel HandlingKernel { get; internal set; }
 
-        public async Task QueueAction(
-            KernelCommandInvocation action)
-        {
-            var command = new AnonymousKernelCommand(action);
-
-            await HandlingKernel.SendAsync(command);
-        }
-
         public ValueTask DisposeAsync()
         {
             if (_current.Value is { } active)
             {
-                _current.Value = null;
+                if (_current.Value == this)
+                {
+                    _current.Value = null;
+                }
 
                 if (_onCompleteActions.Count > 0)
                 {
@@ -159,6 +209,12 @@ namespace Microsoft.DotNet.Interactive
 
             // This method is not async because it would prevent the setting of _current.Value to null from flowing up to the caller.
             return new ValueTask(Task.CompletedTask);
+        }
+
+        internal void CancelWithSuccess()
+        {
+            Complete(Command);
+            TryCancel();
         }
     }
 }

@@ -15,17 +15,20 @@ using Microsoft.DotNet.Interactive.PowerShell;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 
 using Pocket;
-
+using Pocket.For.Xunit;
+using Xunit;
 using static Pocket.Logger<Microsoft.DotNet.Interactive.Tests.LanguageKernelTestBase>;
 
 using Xunit.Abstractions;
 
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+
 namespace Microsoft.DotNet.Interactive.Tests
 {
-    [LogTestNamesToPocketLogger]
+    [LogToPocketLogger(FileNameEnvironmentVariable = "POCKETLOGGER_LOG_PATH")]
     public abstract class LanguageKernelTestBase : IDisposable
     {
-        private readonly CompositeDisposable _disposables = new CompositeDisposable();
+        private readonly CompositeDisposable _disposables = new();
 
         protected LanguageKernelTestBase(ITestOutputHelper output)
         {
@@ -40,7 +43,7 @@ namespace Microsoft.DotNet.Interactive.Tests
             }
             catch (Exception ex) 
             {
-                Log.Error(exception: ex);
+                Log.Error(ex);
             }
         }
 
@@ -50,9 +53,9 @@ namespace Microsoft.DotNet.Interactive.Tests
             return CreateCompositeKernel(
                 new[]
                 {
-                    CreateFSharpKernel(openTestingNamespaces),
-                    CreateCSharpKernel(),
-                    CreatePowerShellKernel(),
+                    CreateFSharpKernelAndAliases(openTestingNamespaces),
+                    CreateCSharpKernelAndAliases(),
+                    CreatePowerShellKernelAndAliases(),
                 },
                 defaultKernelLanguage);
         }
@@ -62,9 +65,9 @@ namespace Microsoft.DotNet.Interactive.Tests
         {
             var languageKernel = defaultLanguage switch
             {
-                Language.FSharp => CreateFSharpKernel(openTestingNamespaces),
-                Language.CSharp => CreateCSharpKernel(),
-                Language.PowerShell => CreatePowerShellKernel(),
+                Language.FSharp => CreateFSharpKernelAndAliases(openTestingNamespaces),
+                Language.CSharp => CreateCSharpKernelAndAliases(),
+                Language.PowerShell => CreatePowerShellKernelAndAliases(),
                 _ => throw new InvalidOperationException($"Unknown language specified: {defaultLanguage}")
             };
 
@@ -91,19 +94,17 @@ namespace Microsoft.DotNet.Interactive.Tests
 
         private Kernel UseExtraNamespacesForFSharpTesting(Kernel kernel)
         {
-
             var code =
-                 "open " + typeof(System.Threading.Tasks.Task).Namespace + Environment.NewLine +
+                 "open " + typeof(Task).Namespace + Environment.NewLine +
                  "open " + typeof(System.Linq.Enumerable).Namespace + Environment.NewLine +
-                 "open " + typeof(Microsoft.AspNetCore.Html.IHtmlContent).Namespace + Environment.NewLine +
-                 "open " + typeof(Microsoft.DotNet.Interactive.FSharp.FSharpKernelHelpers.Html).FullName + Environment.NewLine +
-                 "open " + typeof(XPlot.Plotly.PlotlyChart).Namespace + Environment.NewLine;
+                 "open " + typeof(AspNetCore.Html.IHtmlContent).Namespace + Environment.NewLine +
+                 "open " + typeof(FSharp.FSharpKernelHelpers.Html).FullName + Environment.NewLine;
 
             kernel.DeferCommand(new SubmitCode(code));
             return kernel;
         }
 
-        private (Kernel, IEnumerable<string>) CreateFSharpKernel(bool openTestingNamespaces)
+        private (Kernel, IEnumerable<string>) CreateFSharpKernelAndAliases(bool openTestingNamespaces)
         {
             Kernel kernel =
                 new FSharpKernel()
@@ -126,14 +127,9 @@ namespace Microsoft.DotNet.Interactive.Tests
                 });
         }
 
-        private (Kernel, IEnumerable<string>) CreateCSharpKernel()
+        private (Kernel, IEnumerable<string>) CreateCSharpKernelAndAliases()
         {
-            return (new CSharpKernel()
-                .UseDefaultFormatting()
-                .UseNugetDirective()
-                .UseKernelHelpers()
-                .UseDotNetVariableSharing()
-                .UseWho(),
+            return (CreateCSharpKernel(),
                 new[]
                 {
                     "c#",
@@ -141,7 +137,16 @@ namespace Microsoft.DotNet.Interactive.Tests
                 });
         }
 
-        private (Kernel, IEnumerable<string>) CreatePowerShellKernel()
+        protected virtual CSharpKernel CreateCSharpKernel()
+        {
+            return new CSharpKernel()
+                   .UseNugetDirective()
+                   .UseKernelHelpers()
+                   .UseDotNetVariableSharing()
+                   .UseWho();
+        }
+
+        private (Kernel, IEnumerable<string>) CreatePowerShellKernelAndAliases()
         {
             return (new PowerShellKernel()
                 .UseDotNetVariableSharing(),

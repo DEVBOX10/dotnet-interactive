@@ -38,7 +38,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
         public string? GetLanguageAtPosition(int position)
         {
-            if (_root == null)
+            if (_root is null)
             {
                 return null;
             }
@@ -65,7 +65,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
         public int GetAbsolutePosition(LinePosition linePosition)
         {
-            return _sourceText.Lines.GetPosition(linePosition);
+            return _sourceText.Lines.GetPosition(linePosition.ToCodeAnalysisLinePosition());
         }
     }
 }

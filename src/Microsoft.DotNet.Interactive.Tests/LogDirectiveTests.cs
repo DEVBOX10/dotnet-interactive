@@ -1,9 +1,6 @@
 ﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using System;
-using System.CommandLine.Rendering;
-using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.DotNet.Interactive.CSharp;
@@ -19,7 +16,7 @@ namespace Microsoft.DotNet.Interactive.Tests
         public async Task It_outputs_diagnostic_log_events()
         {
             using var kernel = new CSharpKernel()
-                .UseLog();
+                .UseLogMagicCommand();
 
             using var events = kernel.KernelEvents.ToSubscribedList();
 

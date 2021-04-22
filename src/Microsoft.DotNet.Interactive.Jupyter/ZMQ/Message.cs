@@ -4,8 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.DotNet.Interactive.Jupyter.Protocol;
-using Newtonsoft.Json;
 
 namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
 {
@@ -17,19 +17,21 @@ namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
         [JsonIgnore]
         public string Signature { get; }
 
-        [JsonProperty("header")]
+        [JsonPropertyName("header")]
         public Header Header { get; }
 
-        [JsonProperty("parent_header")]
+        [JsonPropertyName("parent_header")]
         public Header ParentHeader { get; }
 
-        [JsonProperty("metadata", NullValueHandling = NullValueHandling.Ignore)]
+        [JsonPropertyName("metadata")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public IReadOnlyDictionary<string, object> MetaData { get; }
 
-        [JsonProperty("content", NullValueHandling = NullValueHandling.Ignore)]
+        [JsonPropertyName("content")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Protocol.Message Content { get; }
 
-        [JsonProperty("buffers")]
+        [JsonPropertyName("buffers")]
         public IReadOnlyList<IReadOnlyList<byte>> Buffers { get; }
 
         public Message(Header header,
@@ -56,7 +58,7 @@ namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
             string signature = null)
             where T : Protocol.Message
         {
-            if (content == null)
+            if (content is null)
             {
                 throw new ArgumentNullException(nameof(content));
             }
@@ -73,12 +75,12 @@ namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
             Message request)
             where T : ReplyMessage
         {
-            if (content == null)
+            if (content is null)
             {
                 throw new ArgumentNullException(nameof(content));
             }
 
-            if (request == null)
+            if (request is null)
             {
                 throw new ArgumentNullException(nameof(request));
             }
@@ -99,12 +101,12 @@ namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
             string kernelIdentity = null)
             where T : PubSubMessage
         {
-            if (content == null)
+            if (content is null)
             {
                 throw new ArgumentNullException(nameof(content));
             }
 
-            if (request == null)
+            if (request is null)
             {
                 throw new ArgumentNullException(nameof(request));
             }
@@ -115,7 +117,7 @@ namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
             }
 
             var topic = Topic(content, kernelIdentity);
-            var identifiers = topic == null ? null : new[] { Topic(content, kernelIdentity) };
+            var identifiers = topic is null ? null : new[] { Topic(content, kernelIdentity) };
             var replyMessage = Create(content, request.Header, identifiers: identifiers, metaData: request.MetaData, signature: request.Signature);
 
             return replyMessage;
@@ -173,7 +175,7 @@ namespace Microsoft.DotNet.Interactive.Jupyter.ZMQ
 
             string GenerateFullTopic(string topic)
             {
-                if (kernelIdentity == null)
+                if (kernelIdentity is null)
                 {
                     throw new ArgumentNullException(nameof(kernelIdentity));
                 }

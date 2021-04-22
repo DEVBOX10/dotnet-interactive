@@ -17,12 +17,12 @@ using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.QuickInfo;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.DotNet.Interactive.Commands;
+using Microsoft.DotNet.Interactive.CSharp.SignatureHelp;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Extensions;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Utility;
 
-using XPlot.Plotly;
 
 using CompletionItem = Microsoft.DotNet.Interactive.Events.CompletionItem;
 
@@ -35,6 +35,7 @@ namespace Microsoft.DotNet.Interactive.CSharp
         IKernelCommandHandler<RequestCompletions>,
         IKernelCommandHandler<RequestDiagnostics>,
         IKernelCommandHandler<RequestHoverText>,
+        IKernelCommandHandler<RequestSignatureHelp>,
         IKernelCommandHandler<SubmitCode>
     {
         internal const string DefaultKernelName = "csharp";
@@ -66,10 +67,9 @@ namespace Microsoft.DotNet.Interactive.CSharp
                              typeof(Task<>).Assembly,
                              typeof(Kernel).Assembly,
                              typeof(CSharpKernel).Assembly,
-                             typeof(PocketView).Assembly,
-                             typeof(PlotlyChart).Assembly);
+                             typeof(PocketView).Assembly);
 
-        private readonly AssemblyBasedExtensionLoader _extensionLoader = new AssemblyBasedExtensionLoader();
+        private readonly AssemblyBasedExtensionLoader _extensionLoader = new();
         private string _currentDirectory;
 
         public CSharpKernel() : base(DefaultKernelName)
@@ -143,21 +143,23 @@ namespace Microsoft.DotNet.Interactive.CSharp
 
         public async Task HandleAsync(RequestHoverText command, KernelInvocationContext context)
         {
+            await EnsureWorkspaceIsInitializedAsync(context);
+
             using var _ = new GCPressure(1024 * 1024);
-            
-            var document = _workspace.UpdateWorkingDocument(command.Code);
-            var text = await document.GetTextAsync();
-            var cursorPosition = text.Lines.GetPosition(command.LinePosition);
+
+            var document = _workspace.ForkDocumentForLanguageServices(command.Code);
+            var text = await document.GetTextAsync(context.CancellationToken);
+            var cursorPosition = text.Lines.GetPosition(command.LinePosition.ToCodeAnalysisLinePosition());
             var service = QuickInfoService.GetService(document);
-            var info = await service.GetQuickInfoAsync(document, cursorPosition);
+            var info = await service.GetQuickInfoAsync(document, cursorPosition, context.CancellationToken);
             
-            if (info == null)
+            if (info is null)
             {
                 return;
             }
 
-            var scriptSpanStart = text.Lines.GetLinePosition(0);
-            var linePosSpan = text.Lines.GetLinePositionSpan(info.Span);
+            var scriptSpanStart = LinePosition.FromCodeAnalysisLinePosition(text.Lines.GetLinePosition(0));
+            var linePosSpan = LinePositionSpan.FromCodeAnalysisLinePositionSpan(text.Lines.GetLinePositionSpan(info.Span));
             var correctedLinePosSpan = linePosSpan.SubtractLineOffset(scriptSpanStart);
 
             context.Publish(
@@ -168,8 +170,34 @@ namespace Microsoft.DotNet.Interactive.CSharp
                         new FormattedValue("text/markdown", info.ToMarkdownString())
                     },
                     correctedLinePosSpan));
-            
-            
+        }
+
+        public async Task HandleAsync(RequestSignatureHelp command, KernelInvocationContext context)
+        {
+            await EnsureWorkspaceIsInitializedAsync(context);
+
+            var document = _workspace.ForkDocumentForLanguageServices(command.Code); 
+            var signatureHelp = await SignatureHelpGenerator.GenerateSignatureInformation(document, command, context.CancellationToken);
+            if (signatureHelp is { })
+            {
+                context.Publish(signatureHelp);
+            }
+        }
+
+        private async Task EnsureWorkspaceIsInitializedAsync(KernelInvocationContext context)
+        {
+            if (ScriptState is null)
+            {
+                ScriptState = await CSharpScript.RunAsync(
+                        string.Empty,
+                        ScriptOptions,
+                        cancellationToken: context.CancellationToken)
+                    .UntilCancelled(context.CancellationToken) ?? ScriptState;
+                if (ScriptState is not null)
+                {
+                    _workspace.UpdateWorkspace(ScriptState);
+                }
+            }
         }
 
         public async Task HandleAsync(SubmitCode submitCode, KernelInvocationContext context)
@@ -226,15 +254,14 @@ namespace Microsoft.DotNet.Interactive.CSharp
                 var diagnostics = ImmutableArray<CodeAnalysis.Diagnostic>.Empty;
 
                 // Check for a compilation failure
-                if (exception is CodeSubmissionCompilationErrorException compilationError &&
-                    compilationError.InnerException is CompilationErrorException innerCompilationException)
+                if (exception is CodeSubmissionCompilationErrorException { InnerException: CompilationErrorException innerCompilationException })
                 {
                     diagnostics = innerCompilationException.Diagnostics;
                     // In the case of an error the diagnostics get attached to both the 
                     // DiagnosticsProduced and CommandFailed events.
                     message =
                         string.Join(Environment.NewLine,
-                                    innerCompilationException.Diagnostics.Select(d => d.ToString()) ?? Enumerable.Empty<string>());
+                                    innerCompilationException.Diagnostics.Select(d => d.ToString()));
                 }
                 else
                 {
@@ -244,22 +271,25 @@ namespace Microsoft.DotNet.Interactive.CSharp
                 // Publish the compilation diagnostics. This doesn't include the exception.
                 var kernelDiagnostics = diagnostics.Select(Diagnostic.FromCodeAnalysisDiagnostic).ToImmutableArray();
 
-                var formattedDiagnostics =
-                    diagnostics
-                        .Select(d => d.ToString())
-                        .Select(text => new FormattedValue(PlainTextFormatter.MimeType, text))
-                        .ToImmutableArray();
+                if (kernelDiagnostics.Length > 0)
+                {
+                    var formattedDiagnostics =
+                        diagnostics
+                            .Select(d => d.ToString())
+                            .Select(text => new FormattedValue(PlainTextFormatter.MimeType, text))
+                            .ToImmutableArray();
 
-                context.Publish(new DiagnosticsProduced(kernelDiagnostics, submitCode, formattedDiagnostics));
+                    context.Publish(new DiagnosticsProduced(kernelDiagnostics, submitCode, formattedDiagnostics));
+                }
 
                 // Report the compilation failure or exception
-                if (exception != null)
+                if (exception is not null)
                 {
                     context.Fail(exception, message);
                 }
                 else
                 {
-                    if (ScriptState != null && HasReturnValue)
+                    if (ScriptState is not null && HasReturnValue)
                     {
                         var formattedValues = FormattedValue.FromObject(ScriptState.ReturnValue);
                         context.Publish(
@@ -290,13 +320,13 @@ namespace Microsoft.DotNet.Interactive.CSharp
                         _currentDirectory));
             }
 
-            if (ScriptState == null)
+            if (ScriptState is null)
             {
                 ScriptState = await CSharpScript.RunAsync(
                                                     code,
                                                     ScriptOptions,
                                                     cancellationToken: cancellationToken)
-                                                .UntilCancelled(cancellationToken);
+                    .UntilCancelled(cancellationToken) ?? ScriptState;
             }
             else
             {
@@ -305,10 +335,15 @@ namespace Microsoft.DotNet.Interactive.CSharp
                                                    ScriptOptions,
                                                    catchException: catchException,
                                                    cancellationToken: cancellationToken)
-                                               .UntilCancelled(cancellationToken);
+                    .UntilCancelled(cancellationToken) ?? ScriptState;
             }
 
-            if (ScriptState.Exception is null)
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            if (ScriptState is not null && ScriptState.Exception is null)
             {
                 _workspace.UpdateWorkspace(ScriptState);
             }
@@ -318,31 +353,40 @@ namespace Microsoft.DotNet.Interactive.CSharp
             RequestCompletions command,
             KernelInvocationContext context)
         {
+            await EnsureWorkspaceIsInitializedAsync(context);
+
             var completionList =
                 await GetCompletionList(
                     command.Code,
-                    SourceUtilities.GetCursorOffsetFromPosition(command.Code, command.LinePosition));
+                    SourceUtilities.GetCursorOffsetFromPosition(command.Code, command.LinePosition),
+                    context.CancellationToken);
 
             context.Publish(new CompletionsProduced(completionList, command));
         }
 
-        private async Task<IEnumerable<CompletionItem>> GetCompletionList(
-            string code,
-            int cursorPosition)
+        private async Task<IEnumerable<CompletionItem>> GetCompletionList(string code,
+            int cursorPosition, CancellationToken contextCancellationToken)
         {
 
             using var _ = new GCPressure(1024 * 1024);
 
-            var document = _workspace.UpdateWorkingDocument(code);
+            var document = _workspace.ForkDocumentForLanguageServices(code);
             var service = CompletionService.GetService(document);
-            var completionList = await service.GetCompletionsAsync(document, cursorPosition);
+            var completionList = await service.GetCompletionsAsync(document, cursorPosition, cancellationToken: contextCancellationToken);
            
             if (completionList is null)
             {
                 return Enumerable.Empty<CompletionItem>();
             }
 
-            var items = completionList.Items.Select(item => item.ToModel()).ToArray();
+            var items = new List<CompletionItem>();
+            foreach (var item in completionList.Items)
+            {
+                var description = await service.GetDescriptionAsync(document, item, contextCancellationToken);
+                var completionItem = item.ToModel(description);
+                items.Add(completionItem);
+            }
+
             return items;
         }
 
@@ -364,9 +408,11 @@ namespace Microsoft.DotNet.Interactive.CSharp
             RequestDiagnostics command,
             KernelInvocationContext context)
         {
-            var document = _workspace.UpdateWorkingDocument(command.Code);
-            var semanticModel = await document.GetSemanticModelAsync();
-            var diagnostics = semanticModel.GetDiagnostics();
+            await EnsureWorkspaceIsInitializedAsync(context);
+
+            var document = _workspace.ForkDocumentForLanguageServices(command.Code);
+            var semanticModel = await document.GetSemanticModelAsync(context.CancellationToken);
+            var diagnostics = semanticModel.GetDiagnostics(cancellationToken:context.CancellationToken);
             context.Publish(GetDiagnosticsProduced(command, diagnostics));
         }
 
@@ -383,7 +429,7 @@ namespace Microsoft.DotNet.Interactive.CSharp
         public PackageRestoreContext PackageRestoreContext => _packageRestoreContext.Value;
 
         private bool HasReturnValue =>
-            ScriptState != null &&
+            ScriptState is not null &&
             (bool)_hasReturnValueMethod.Invoke(ScriptState.Script, null);
 
         void ISupportNuget.AddRestoreSource(string source) => _packageRestoreContext.Value.AddRestoreSource(source);
@@ -397,7 +443,13 @@ namespace Microsoft.DotNet.Interactive.CSharp
         {
             var references = resolvedReferences
                              .SelectMany(r => r.AssemblyPaths)
-                             .Select(r => MetadataReference.CreateFromFile(r));
+                             .Select(r => CachingMetadataResolver.ResolveReferenceWithXmlDocumentationProvider(r))
+                             .ToArray();
+
+            foreach (var reference in references)
+            {
+                _workspace.AddPackageManagerReference(reference);
+            }
 
             ScriptOptions = ScriptOptions.AddReferences(references);
         }

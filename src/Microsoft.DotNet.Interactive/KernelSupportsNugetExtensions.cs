@@ -10,7 +10,9 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Html;
+using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
+using Microsoft.DotNet.Interactive.Formatting;
 using static Microsoft.DotNet.Interactive.Formatting.PocketViewTags;
 
 namespace Microsoft.DotNet.Interactive
@@ -34,6 +36,7 @@ namespace Microsoft.DotNet.Interactive
             return kernel;
         }
 
+        private static readonly string restoreSourcesPropertyName = "commandIHandler.RestoreSources";
         private static Command i()
         {
             var iDirective = new Command("#i")
@@ -45,13 +48,20 @@ namespace Microsoft.DotNet.Interactive
                 if (context.HandlingKernel is ISupportNuget kernel)
                 {
                     kernel.AddRestoreSource(source.Replace("nuget:", ""));
-
                     IHtmlContent content = div(
                         strong("Restore sources"),
-                        ul(kernel.RestoreSources
-                                 .Select(s => li(span(s)))));
+                        ul(kernel.RestoreSources.Select(s => li(span(s)))));
 
-                    context.Display(content);
+                    object displayed = null;
+                    if (!context.Command.Properties.TryGetValue(restoreSourcesPropertyName, out displayed))
+                    {
+                        displayed = context.Display(content, HtmlFormatter.MimeType);
+                        context.Command.Properties.Add(restoreSourcesPropertyName, displayed);
+                    }
+                    else
+                    {
+                        (displayed as DisplayedValue).Update(content);
+                    }
                 }
             });
             return iDirective;
@@ -73,7 +83,7 @@ namespace Microsoft.DotNet.Interactive
                             return reference;
                         }
 
-                        if (token != null &&
+                        if (token is not null &&
                             !token.StartsWith("nuget:") &&
                             !EndsInDirectorySeparator(token))
                         {
@@ -107,7 +117,7 @@ namespace Microsoft.DotNet.Interactive
                     if (alreadyGotten is { } && !string.IsNullOrWhiteSpace(pkg.PackageVersion) && pkg.PackageVersion != alreadyGotten.PackageVersion)
                     {
                         var errorMessage = GenerateErrorMessage(pkg, alreadyGotten).ToString(OutputMode.NonAnsi);
-                        context.Publish(new ErrorProduced(errorMessage));
+                        context.Publish(new ErrorProduced(errorMessage, context.Command));
                     }
                     else
                     {
@@ -116,7 +126,7 @@ namespace Microsoft.DotNet.Interactive
                         if (added is null)
                         {
                             var errorMessage = GenerateErrorMessage(pkg).ToString(OutputMode.NonAnsi);
-                            context.Publish(new ErrorProduced(errorMessage));
+                            context.Publish(new ErrorProduced(errorMessage, context.Command));
                         }
                     }
 
@@ -125,7 +135,7 @@ namespace Microsoft.DotNet.Interactive
                         PackageReference existing = null)
                     {
                         var spanFormatter = new TextSpanFormatter();
-                        if (existing != null)
+                        if (existing is not null)
                         {
                             if (!string.IsNullOrEmpty(requested.PackageName))
                             {
@@ -240,7 +250,7 @@ namespace Microsoft.DotNet.Interactive
                                     $"Installed package {resolvedReference.PackageName} version {resolvedReference.PackageVersion}");
                             }
 
-                            context.Publish(new PackageAdded(resolvedReference));
+                            context.Publish(new PackageAdded(resolvedReference, context.Command));
                         }
 
                         foreach (var package in requestedPackageIds.Values)
@@ -261,9 +271,7 @@ namespace Microsoft.DotNet.Interactive
                     }
                 };
 
-                await invocationContext.QueueAction(restore);
-                var kernel = invocationContext.HandlingKernel;
-                await kernel.RunDeferredCommandsAsync();
+                await invocationContext.HandlingKernel.SendAsync(new AnonymousKernelCommand(restore));
             };
 
             static string InstallingPackageMessage(PackageReference package)

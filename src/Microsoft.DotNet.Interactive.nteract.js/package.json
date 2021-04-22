@@ -19,14 +19,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/colombod/dotnet-interactive-visualization.git"
+    "url": "git+https://github.com/dotnet/interactive.git"
   },
   "author": "Diego Colombo",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/colombod/dotnet-interactive-visualization/issues"
+    "url": "https://github.com/dotnet/interactive/issues"
   },
-  "homepage": "https://github.com/colombod/dotnet-interactive-visualization#readme",
+  "homepage": "https://github.com/dotnet/interactive",
   "dependencies": {
     "@nteract/data-explorer": "8.2.9",
     "react": "16.13.1",

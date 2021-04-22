@@ -9,15 +9,32 @@ using Xunit;
 
 namespace Microsoft.DotNet.Interactive.Formatting.Tests
 {
-    public class TabularDataFormatterTests : IDisposable
+    public class TabularDataResourceFormatterTests : IDisposable
     {
         private readonly Configuration _configuration;
 
-        public TabularDataFormatterTests()
+        public TabularDataResourceFormatterTests()
         {
             _configuration = new Configuration()
                 .SetInteractive(Debugger.IsAttached)
                 .UsingExtension("json");
+        }
+
+        [Fact]
+        public void can_generate_tabular_json_when_non_numeric_literals_are_used()
+        {
+            var data = new[]
+            {
+                new { Name = "Q", IsValid = false, Cost = double.NaN },
+                new { Name = "U", IsValid = false, Cost = 5.0 },
+                new { Name = "E", IsValid = true, Cost = double.NegativeInfinity },
+                new { Name = "S", IsValid = false, Cost = 10.0 },
+                new { Name = "T", IsValid = false, Cost = double.PositiveInfinity }
+            };
+
+            var formattedData = data.ToDisplayString(TabularDataResourceFormatter.MimeType);
+
+            this.Assent(formattedData, _configuration);
         }
 
         [Fact]
@@ -27,12 +44,12 @@ namespace Microsoft.DotNet.Interactive.Formatting.Tests
             {
                 new { Name = "Q", IsValid = false, Cost = 10.0 },
                 new { Name = "U", IsValid = false, Cost = 5.0 },
-                new { Name = "E", IsValid = true, Cost = 10.0 },
+                new { Name = "E", IsValid = true, Cost = 10.2 },
                 new { Name = "S", IsValid = false, Cost = 10.0 },
                 new { Name = "T", IsValid = false, Cost = 10.0 }
             };
 
-            var formattedData = data.ToDisplayString(TabularDataFormatter.MimeType);
+            var formattedData = data.ToDisplayString(TabularDataResourceFormatter.MimeType);
 
             this.Assent(formattedData, _configuration);
         }
@@ -66,7 +83,7 @@ namespace Microsoft.DotNet.Interactive.Formatting.Tests
                     },
                 };
 
-            var formattedData = data.ToDisplayString(TabularDataFormatter.MimeType);
+            var formattedData = data.ToDisplayString(TabularDataResourceFormatter.MimeType);
 
             this.Assent(formattedData, _configuration);
         }
@@ -100,7 +117,7 @@ namespace Microsoft.DotNet.Interactive.Formatting.Tests
                     },
                 };
 
-            var formattedData = data.ToDisplayString(TabularDataFormatter.MimeType);
+            var formattedData = data.ToDisplayString(TabularDataResourceFormatter.MimeType);
 
             this.Assent(formattedData, _configuration);
         }
@@ -114,7 +131,7 @@ namespace Microsoft.DotNet.Interactive.Formatting.Tests
                 ["two"] = 2
             };
 
-            var formattedData = data.ToDisplayString(TabularDataFormatter.MimeType);
+            var formattedData = data.ToDisplayString(TabularDataResourceFormatter.MimeType);
 
             this.Assent(formattedData, _configuration);
         }

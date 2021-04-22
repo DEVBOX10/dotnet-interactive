@@ -125,7 +125,7 @@ namespace Microsoft.DotNet.Interactive
                     }
                     else if (!File.Exists(filePath))
                     {
-                        result.ErrorMessage = ValidationMessages.Instance.FileDoesNotExist(filePath);
+                        result.ErrorMessage = Resources.Instance.FileDoesNotExist(filePath);
                         return null;
                     }
                     else
@@ -136,7 +136,7 @@ namespace Microsoft.DotNet.Interactive
 
             var mimeTypeOption = new Option<string>(
                     "--mime-type",
-                    "A mime type for the value. If specified, displays the value immediately as a cell output using the specified mime type.")
+                    "A mime type for the value. If specified, displays the value immediately as an output using the specified mime type.")
                 .AddSuggestions((_,__) => new[]
                 {
                     "application/json",

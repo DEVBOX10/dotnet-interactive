@@ -1,16 +1,16 @@
 ﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using System;
 using System.Threading.Tasks;
 using FluentAssertions;
-using Microsoft.CodeAnalysis.Text;
+using FluentAssertions.Execution;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Xunit;
 using Xunit.Abstractions;
 
+#pragma warning disable 8509
 namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
 {
     public class HoverTextTests : LanguageKernelTestBase
@@ -47,33 +47,34 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
 
             MarkupTestFile.GetLineAndColumn(markupCode, out var code, out var line, out var character);
             var commandResult = await SendHoverRequest(kernel, code, line, character);
+            var events = commandResult.KernelEvents.ToSubscribedList();
 
-            commandResult
-                .KernelEvents
-                .ToSubscribedList()
+            events
                 .Should()
                 .ContainSingle<HoverTextProduced>()
                 .Which
                 .Content
                 .Should()
-                .ContainEquivalentOf(new FormattedValue(expectedMimeType, expectedContent));
+                .ContainSingle(fv => fv.MimeType == expectedMimeType && fv.Value.Contains(expectedContent));
         }
 
         [Theory]
         [InlineData(Language.CSharp, "var x = 1; // hovering$$ in a comment")]
         [InlineData(Language.FSharp, "let x = 1 // hovering$$ in a comment")]
-        public async Task invalid_hover_request_returns_no_result(Language language, string markupCode)
+        public async Task hover_request_over_comments_succeeds(Language language, string markupCode)
         {
             using var kernel = CreateKernel(language);
 
             MarkupTestFile.GetLineAndColumn(markupCode, out var code, out var line, out var character);
             var commandResult = await SendHoverRequest(kernel, code, line, character);
 
-            commandResult
+            var events = commandResult
                 .KernelEvents
-                .ToSubscribedList()
+                .ToSubscribedList();
+
+            events
                 .Should()
-                .NotContain(kv => kv.GetType().IsSubclassOf(typeof(HoverTextProduced)));
+                .ContainSingle<CommandSucceeded>();
         }
 
         [Theory]
@@ -87,21 +88,29 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
 
             var commandResult = await SendHoverRequest(kernel, code, line, character);
 
-            commandResult
+            var events = commandResult
                 .KernelEvents
-                .ToSubscribedList()
-                .Should()
-                .NotContain(kv => kv.GetType().IsSubclassOf(typeof(HoverTextProduced)));
+                .ToSubscribedList();
+
+            using var _ = new AssertionScope();
+
+            events.Should()
+                .NotContain(kv => kv is HoverTextProduced);
+
+            events
+                 .Should()
+                .ContainSingle<CommandFailed>();
         }
 
         [Theory]
-        [InlineData(Language.CSharp, "var one = 1;", "Console.WriteLine(o$$ne)", "text/markdown", "(field) int one")]
+        [InlineData(Language.CSharp, "var one = 1;", "Console.WriteLine(o$$ne)", "text/markdown", ") int one")]
         [InlineData(Language.FSharp, "let one = 1", "printfn \"%a\" o$$ne", "text/markdown", "```fsharp\nval one : int\n```\n\n----\n*Full name: one*")]
-        public async Task language_service_methods_run_deferred_commands(Language language, string deferredCode, string markupCode, string expectedMimeType, string expectedContent)
+        public async Task language_service_methods_run_deferred_commands(Language language, string deferredCode, string markupCode, string expectedMimeType, string expectedContentEnd)
         {
             // declare a variable in deferred code
             using var kernel = CreateKernel(language);
-            kernel.DeferCommand(new SubmitCode(deferredCode));
+            var languageKernel = kernel.FindKernel(language.LanguageName());
+            languageKernel.DeferCommand(new SubmitCode(deferredCode));
 
             // send the actual language service request that depends on the deferred code
             MarkupTestFile.GetLineAndColumn(markupCode, out var code, out var line, out var character);
@@ -115,12 +124,168 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
                 .Which
                 .Content
                 .Should()
-                .ContainEquivalentOf(new FormattedValue(expectedMimeType, expectedContent));
+                .Contain(f => f.MimeType == expectedMimeType && f.Value.EndsWith(expectedContentEnd));
         }
 
         [Theory]
-        [InlineData(Language.CSharp, "Console.Write$$Line();", "text/markdown", "void Console.WriteLine() (+ 17 overloads)")]
-        [InlineData(Language.FSharp, "ex$$it 0", "text/markdown", "```fsharp\nval exit: \n   exitcode: int \n          -> 'T\n```\n\n----\nExit the current hardware isolated process, if security settings permit,\n otherwise raise an exception. Calls `System.Environment.Exit`.\n\n`exitcode`: The exit code to use.\n\n**Generic parameters**\n\n* `'T` is `obj`\n\n----\n*Full name: Microsoft.FSharp.Core.Operators.exit*\n\n----\n*Assembly: FSharp.Core*")]
+        [InlineData(Language.CSharp, "System.Environment.Command$$Line", "Gets the command line for this process.")]
+        public async Task hover_text_doc_comments_can_be_loaded_from_bcl_types(Language language, string markupCode, string expectedHoverTextSubString)
+        {
+            using var kernel = CreateKernel(language);
+
+            MarkupTestFile.GetLineAndColumn(markupCode, out var code, out var line, out var character);
+
+            await SendHoverRequest(kernel, code, line, character);
+
+            KernelEvents
+                .Should()
+                .ContainSingle<HoverTextProduced>()
+                .Which
+                .Content
+                .Should()
+                .ContainSingle()
+                .Which
+                .Value
+                .Should()
+                .Contain(expectedHoverTextSubString);
+        }
+
+    [Theory]
+        [InlineData(Language.CSharp, "/// <summary>Adds two numbers.</summary>\nint Add(int a, int b) => a + b;", "Ad$$d(1, 2)", "Adds two numbers.")]
+        [InlineData(Language.FSharp, "/// Adds two numbers.\nlet add a b = a + b", "ad$$d 1 2", "Adds two numbers.")]
+        public async Task hover_text_doc_comments_can_be_loaded_from_source_in_a_previous_submission(Language language, string previousSubmission, string markupCode, string expectedHoverTextSubString)
+        {
+            using var kernel = CreateKernel(language);
+
+            await SubmitCode(kernel, previousSubmission);
+
+            MarkupTestFile.GetLineAndColumn(markupCode, out var code, out var line, out var character);
+            var commandResult = await SendHoverRequest(kernel, code, line, character);
+
+            var events = commandResult.KernelEvents.ToSubscribedList();
+
+            events
+                .Should()
+                .ContainSingle<HoverTextProduced>()
+                .Which
+                .Content
+                .Should()
+                .ContainSingle(fv => fv.Value.Contains(expectedHoverTextSubString));
+        }
+
+        [Theory]
+        [InlineData(Language.CSharp, "var s = new Sample$$Class();")]
+        [InlineData(Language.FSharp, "let s = Sample$$Class()")]
+        public async Task hover_text_can_read_doc_comments_from_individually_referenced_assemblies_with_xml_files(Language language, string markupCode)
+        {
+            using var assembly = new TestAssemblyReference("Project", "netstandard2.0", "Program.cs", @"
+public class SampleClass
+{
+    /// <summary>A sample class constructor.</summary>
+    public SampleClass() { }
+}
+");
+            var assemblyPath = await assembly.BuildAndGetPathToAssembly();
+
+            var assemblyReferencePath = language switch
+            {
+                Language.CSharp => assemblyPath,
+                Language.FSharp => assemblyPath.Replace("\\", "\\\\")
+            };
+
+            using var kernel = CreateKernel(language);
+
+            await SubmitCode(kernel, $"#r \"{assemblyReferencePath}\"");
+
+            MarkupTestFile.GetLineAndColumn(markupCode, out var code, out var line, out var character);
+            var commandResult = await SendHoverRequest(kernel, code, line, character);
+
+            var events = commandResult.KernelEvents.ToSubscribedList();
+
+            events
+                .Should()
+                .ContainSingle<HoverTextProduced>()
+                .Which
+                .Content
+                .Should()
+                .ContainSingle(fv => fv.Value.Contains("A sample class constructor."));
+        }
+
+        [Fact]
+        public async Task csharp_hover_text_can_read_doc_comments_from_nuget_packages_after_forcing_the_assembly_to_load()
+        {
+            using var kernel = CreateKernel(Language.CSharp);
+
+            await SubmitCode(kernel, "#r \"nuget: Newtonsoft.Json, 12.0.3\"");
+
+            // The following line forces the assembly and the doc comments to be loaded
+            await SubmitCode(kernel, "var _unused = Newtonsoft.Json.JsonConvert.Null;");
+
+            var markupCode = "Newtonsoft.Json.JsonConvert.Nu$$ll";
+
+            MarkupTestFile.GetLineAndColumn(markupCode, out var code, out var line, out var character);
+            var commandResult = await SendHoverRequest(kernel, code, line, character);
+
+            var events = commandResult.KernelEvents.ToSubscribedList();
+
+            events
+                .Should()
+                .ContainSingle<HoverTextProduced>()
+                .Which
+                .Content
+                .Should()
+                .ContainSingle(fv => fv.Value.Contains("Represents JavaScript's null as a string. This field is read-only."));
+        }
+
+        [Fact(Skip = "https://github.com/dotnet/interactive/issues/1071  N.b., the preceeding test can be deleted when this one is fixed.")]
+        public async Task csharp_hover_text_can_read_doc_comments_from_nuget_packages()
+        {
+            using var kernel = CreateKernel(Language.CSharp);
+
+            await SubmitCode(kernel, "#r \"nuget: Newtonsoft.Json, 12.0.3\"");
+
+            var markupCode = "Newtonsoft.Json.JsonConvert.Nu$$ll";
+
+            MarkupTestFile.GetLineAndColumn(markupCode, out var code, out var line, out var character);
+            var commandResult = await SendHoverRequest(kernel, code, line, character);
+
+            var events = commandResult.KernelEvents.ToSubscribedList();
+
+            events
+                .Should()
+                .ContainSingle<HoverTextProduced>()
+                .Which
+                .Content
+                .Should()
+                .ContainSingle(fv => fv.Value.Contains("Represents JavaScript's null as a string. This field is read-only."));
+        }
+
+        [Fact]
+        public async Task fsharp_hover_text_can_read_doc_comments_from_nuget_packages()
+        {
+            using var kernel = CreateKernel(Language.FSharp);
+
+            await SubmitCode(kernel, "#r \"nuget: Newtonsoft.Json, 12.0.3\"");
+
+            var markupCode = "Newtonsoft.Json.JsonConvert.Nu$$ll";
+
+            MarkupTestFile.GetLineAndColumn(markupCode, out var code, out var line, out var character);
+            var commandResult = await SendHoverRequest(kernel, code, line, character);
+
+            var events = commandResult.KernelEvents.ToSubscribedList();
+
+            events
+                .Should()
+                .ContainSingle<HoverTextProduced>()
+                .Which
+                .Content
+                .Should()
+                .ContainSingle(fv => fv.Value.Contains("Represents JavaScript's `null` as a string. This field is read-only."));
+        }
+
+        [Theory]
+        [InlineData(Language.CSharp, "Console.Write$$Line();", "text/markdown", "void Console.WriteLine() (+ 17")]
+        [InlineData(Language.FSharp, "ex$$it 0", "text/markdown", "Exit the current hardware isolated process")]
         public async Task hover_text_commands_have_offsets_normalized_after_magic_commands(Language language, string markupCode, string expectedMimeType, string expectedContent)
         {
             using var kernel = CreateKernel(language);
@@ -134,21 +299,20 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
 
             MarkupTestFile.GetLineAndColumn(fullMarkupCode, out var code, out var line, out var character);
             var commandResult = await SendHoverRequest(kernel, code, line, character);
+            var events = commandResult.KernelEvents.ToSubscribedList();
 
-            commandResult
-                .KernelEvents
-                .ToSubscribedList()
+            events
                 .Should()
                 .ContainSingle<HoverTextProduced>()
                 .Which
                 .Content
                 .Should()
-                .ContainSingle(fv => fv.MimeType == expectedMimeType && fv.Value == expectedContent);
+                .ContainSingle(fv => fv.MimeType == expectedMimeType && fv.Value.Contains(expectedContent));
         }
 
         [Theory]
-        [InlineData(Language.CSharp, "Console.Write$$Line();", "text/markdown", "void Console.WriteLine() (+ 17 overloads)")]
-        [InlineData(Language.FSharp, "ex$$it 0", "text/markdown", "```fsharp\nval exit: \n   exitcode: int \n          -> 'T\n```\n\n----\nExit the current hardware isolated process, if security settings permit,\n otherwise raise an exception. Calls `System.Environment.Exit`.\n\n`exitcode`: The exit code to use.\n\n**Generic parameters**\n\n* `'T` is `obj`\n\n----\n*Full name: Microsoft.FSharp.Core.Operators.exit*\n\n----\n*Assembly: FSharp.Core*")]
+        [InlineData(Language.CSharp, "Console.Write$$Line();", "text/markdown", "void Console.WriteLine() (+ 17")]
+        [InlineData(Language.FSharp, "ex$$it 0", "text/markdown", "Exit the current hardware isolated process")]
         public async Task hover_text_commands_have_offsets_normalized_after_switching_to_the_same_language(Language language, string markupCode, string expectedMimeType, string expectedContent)
         {
             using var kernel = CreateKernel(language);
@@ -162,16 +326,15 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
 
             MarkupTestFile.GetLineAndColumn(fullMarkupCode, out var code, out var line, out var character);
             var commandResult = await SendHoverRequest(kernel, code, line, character);
+            var events = commandResult.KernelEvents.ToSubscribedList();
 
-            commandResult
-                .KernelEvents
-                .ToSubscribedList()
+            events
                 .Should()
                 .ContainSingle<HoverTextProduced>()
                 .Which
                 .Content
                 .Should()
-                .ContainSingle(fv => fv.MimeType == expectedMimeType && fv.Value == expectedContent);
+                .ContainSingle(fv => fv.MimeType == expectedMimeType && fv.Value.Contains(expectedContent));
         }
 
         [Fact]
@@ -205,24 +368,20 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
         [InlineData(Language.FSharp)]
         public async Task csharp_hover_text_is_returned_for_shadowing_variables(Language language)
         {
-            SubmitCode declaration = null;
-            SubmitCode shadowingDeclaration = null;
-            using var kernel = CreateKernel(language);
-            string expected = "";
-            switch (language)
+            var (declaration, shadowingDeclaration, expectedEnd) = language switch
             {
-                case Language.CSharp:
-                    declaration = new SubmitCode("var identifier = 1234;");
-                    shadowingDeclaration = new SubmitCode("var identifier = \"one-two-three-four\";");
-                    expected = "(field) string identifier";
-                    break;
-                case Language.FSharp:
-                    declaration = new SubmitCode("let identifier = 1234");
-                    shadowingDeclaration = new SubmitCode("let identifier = \"one-two-three-four\"");
-                    expected = "```fsharp\nval identifier : string\n```\n\n----\n*Full name: identifier*";
-                    break;
+                Language.CSharp => 
+                    (new SubmitCode("var identifier = 1234;"),
+                     new SubmitCode("var identifier = \"one-two-three-four\";"),
+                     ") string identifier"), // word "field" is locale-dependent
+                Language.FSharp => 
+                    (new SubmitCode("let identifier = 1234"),
+                     new SubmitCode("let identifier = \"one-two-three-four\""),
+                     "```fsharp\nval identifier : string\n```\n\n----\n*Full name: identifier*")
+            };
 
-            }
+            using var kernel = CreateKernel(language);
+
             await kernel.SendAsync(declaration); 
 
             await kernel.SendAsync(shadowingDeclaration); 
@@ -241,7 +400,7 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
                 .Which
                 .Content
                 .Should()
-                .ContainSingle(fv => fv.Value == expected);
+                .ContainSingle(fv => fv.Value.EndsWith(expectedEnd));
         }
     }
 }

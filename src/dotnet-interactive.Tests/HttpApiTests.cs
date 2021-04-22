@@ -25,16 +25,21 @@ using Newtonsoft.Json.Linq;
 using Pocket;
 
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Microsoft.DotNet.Interactive.App.Tests
 {
     public class HttpApiTests : IDisposable
     {
-        private readonly CompositeDisposable _disposables = new CompositeDisposable();
+        private readonly CompositeDisposable _disposables = new();
 
-        public void Dispose()
+        public HttpApiTests(ITestOutputHelper output)
         {
             _disposables.Add(Formatting.Formatter.ResetToDefault);
+            _disposables.Add(output.SubscribeToPocketLogger());
+        }
+        public void Dispose()
+        {
             _disposables.Dispose();
         }
 
@@ -59,7 +64,7 @@ namespace Microsoft.DotNet.Interactive.App.Tests
 
             response.StatusCode.Should().Be(HttpStatusCode.NotFound);
             var frontendEnvironment = server.FrontendEnvironment;
-            frontendEnvironment.Should().NotBeOfType<HtmlNotebookFrontedEnvironment>();
+            frontendEnvironment.Should().NotBeOfType<HtmlNotebookFrontendEnvironment>();
         }
 
         [Fact]
@@ -71,7 +76,7 @@ namespace Microsoft.DotNet.Interactive.App.Tests
             using var scope = new AssertionScope();
 
             response.StatusCode.Should().Be(HttpStatusCode.OK);
-            var frontendEnvironment = (HtmlNotebookFrontedEnvironment)server.FrontendEnvironment;
+            var frontendEnvironment = (HtmlNotebookFrontendEnvironment)server.FrontendEnvironment;
 
             var apiUri = await frontendEnvironment.GetApiUriAsync();
             apiUri.Should().Be(tunnelUri);
@@ -87,7 +92,7 @@ namespace Microsoft.DotNet.Interactive.App.Tests
             using var scope = new AssertionScope();
 
             response.StatusCode.Should().Be(HttpStatusCode.OK);
-            var frontendEnvironment = (HtmlNotebookFrontedEnvironment)server.FrontendEnvironment;
+            var frontendEnvironment = (HtmlNotebookFrontendEnvironment)server.FrontendEnvironment;
 
             var apiUri = await frontendEnvironment.GetApiUriAsync();
             apiUri.Should().Be(tunnelUri);
@@ -357,13 +362,10 @@ var f = new { Field= ""string value""};", Language.CSharp.LanguageName()));
                 $"await kernel.SendAsync(new SubmitCode(\"\\\"{guid}\\\"\"));",
                 packageName,
                 packageVersion,
-                fileToEmbed);
+                fileToEmbed: fileToEmbed);
 
-
-
-            await kernel.SubmitCodeAsync($@"
-#i ""nuget:{nupkg.Directory.FullName}""
-#r ""nuget:{packageName},{packageVersion}""            ");
+            await kernel.SubmitCodeAsync($@"#i ""nuget:{nupkg.Directory.FullName}""
+#r ""nuget:{packageName},{packageVersion}""");
 
             var response = await server.HttpClient.GetAsync("extensions/TestKernelExtension/resources/file.txt");
 
@@ -388,6 +390,7 @@ var f = new { Field= ""string value""};", Language.CSharp.LanguageName()));
             kernels.Should()
                    .BeEquivalentTo(
                        ".NET",
+                       "sql",
                        "csharp",
                        "fsharp",
                        "pwsh",

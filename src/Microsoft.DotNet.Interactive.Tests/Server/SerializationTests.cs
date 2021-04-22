@@ -17,6 +17,7 @@ using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Notebook;
 using Microsoft.DotNet.Interactive.Server;
+using Microsoft.DotNet.Interactive.Tests.Utility;
 
 using Pocket;
 
@@ -48,9 +49,10 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
 
             deserializedEnvelope
                 .Should()
-                .BeEquivalentTo(originalEnvelope,
-                                o => o.Excluding(e => e.Command.Properties)
-                                      .Excluding(e => e.Command.Handler));
+                .BeEquivalentToRespectingRuntimeTypes(
+                    originalEnvelope,
+                    o => o.Excluding(e => e.Command.Properties)
+                          .Excluding(e => e.Command.Handler));
         }
 
         [Theory]
@@ -65,10 +67,20 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
 
             var deserializedEnvelope = KernelEventEnvelope.Deserialize(json);
 
+            // ignore these specific properties because they're not serialized
+            var ignoredProperties = new HashSet<string>
+            {
+                $"{nameof(CommandFailed)}.{nameof(CommandFailed.Exception)}",
+                $"{nameof(DisplayEvent)}.{nameof(DisplayEvent.Value)}"
+            };
+
             deserializedEnvelope
                 .Should()
-                .BeEquivalentTo(originalEnvelope,
-                                o => o.Excluding(envelope => envelope.Event.Command.Properties));
+                .BeEquivalentToRespectingRuntimeTypes(
+                    originalEnvelope,
+                    o => o.Excluding(envelope => envelope.Event.Command.Properties)
+                          .Excluding(envelope => ignoredProperties.Contains($"{envelope.SelectedMemberInfo.DeclaringType.Name}.{envelope.SelectedMemberInfo.Name}"))
+                    );
         }
 
         [Theory]
@@ -160,9 +172,11 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
 
                 yield return new RequestHoverText("document-contents", new LinePosition(1, 2));
 
+                yield return new RequestSignatureHelp("sig-help-contents", new LinePosition(1, 2));
+
                 yield return new SerializeNotebook("notebook.ipynb", new NotebookDocument(new[]
                 {
-                    new NotebookCell("language", "contents", new NotebookCellOutput[]
+                    new NotebookCell("csharp", "user code", new NotebookCellOutput[]
                     {
                         new NotebookCellDisplayOutput(new Dictionary<string, object>()
                         {
@@ -182,6 +196,10 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                 yield return new UpdateDisplayedValue(
                     new FormattedValue("text/html", "<b>hi!</b>"),
                     "the-value-id");
+                
+                yield return new Quit();
+
+                yield return new Cancel("csharp");
             }
         }
 
@@ -259,7 +277,7 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                         new FormattedValue("text/html", "<b>hi!</b>"),
                     });
 
-                yield return new ErrorProduced("oops!");
+                yield return new ErrorProduced("oops!", submitCode);
 
                 yield return new IncompleteCodeSubmissionReceived(submitCode);
 
@@ -289,17 +307,18 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                             "at func2()"
                         })
                     })
-                }));
+                }), new ParseNotebook("notebook.ipynb", new byte[0]));
 
-                yield return new NotebookSerialized(new byte[] { 0x01, 0x02, 0x03, 0x04 });
-
+                yield return new NotebookSerialized(new byte[] { 0x01, 0x02, 0x03, 0x04 }, new SerializeNotebook("notebook.ipynb", null,"\n"));
+               
                 yield return new PackageAdded(
                     new ResolvedPackageReference(
                         packageName: "ThePackage",
                         packageVersion: "1.2.3",
                         assemblyPaths: new[] { "/path/to/a.dll" },
                         packageRoot: "/the/package/root",
-                        probingPaths: new[] { "/probing/path/1", "/probing/path/2" }));
+                        probingPaths: new[] { "/probing/path/1", "/probing/path/2" }),
+                        new SubmitCode("#r \"nuget:ThePackage,1.2.3\""));
 
                 yield return new PasswordRequested("password", submitCode);
 
@@ -310,6 +329,21 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                     {
                         new FormattedValue("text/html", "<b>hi!</b>"),
                     });
+
+                yield return new SignatureHelpProduced(
+                    new RequestSignatureHelp("sig-help-contents", new LinePosition(1, 2)),
+                    new[]
+                    {
+                        new SignatureInformation("label",
+                            new FormattedValue("text/html", "sig-help-result"),
+                            new[]
+                            {
+                                new ParameterInformation("param1", new FormattedValue("text/html", "param1")),
+                                new ParameterInformation("param2", new FormattedValue("text/html", "param2"))
+                            })
+                    },
+                    0,
+                    1);
 
                 yield return new StandardErrorValueProduced(
                     submitCode,

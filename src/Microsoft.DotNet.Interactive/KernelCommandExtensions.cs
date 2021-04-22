@@ -35,7 +35,7 @@ namespace Microsoft.DotNet.Interactive
 
         public static string GetToken(this KernelCommand command)
         {
-            if (command == null)
+            if (command is null)
             {
                 throw new ArgumentNullException(nameof(command));
             }
@@ -46,9 +46,17 @@ namespace Microsoft.DotNet.Interactive
                 return tokenSequence.Current;
             }
 
-            if (command.Parent != null)
+            if (command.Parent is { } parent)
             {
-                var token = command.Parent.GetToken();
+                var token = parent.GetToken();
+                command.SetToken(token);
+                return token;
+            }
+            
+            if (KernelInvocationContext.Current?.Command is { } contextCommand && 
+                contextCommand != command)
+            {
+                var token = contextCommand.GetToken();
                 command.SetToken(token);
                 return token;
             }
@@ -84,7 +92,7 @@ namespace Microsoft.DotNet.Interactive
 
             public TokenSequence(string current = null)
             {
-                if (current != null)
+                if (current is not null)
                 {
                     Current = current;
                 }

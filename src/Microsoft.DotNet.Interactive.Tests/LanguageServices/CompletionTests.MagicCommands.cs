@@ -4,10 +4,9 @@
 using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
-using FluentAssertions;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.CodeAnalysis.Text;
+using FluentAssertions;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.CSharp;
@@ -62,6 +61,37 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
                                                because: $"position {requestCompleted.LinePositionSpan} should provide completions"));
             }
 
+            [Theory]
+            // commands
+            [InlineData("#!sha[||]", "Share a .NET variable")]
+            // options
+            [InlineData("#!share --fr[||]", "--from*csharp*The name of the kernel")]
+            // subcommands
+            [InlineData("#!connect signa[||]", "Connects to a kernel using SignalR*--hub-url*The URL of the SignalR hub")]
+            public void Completion_documentation_is_available_for_magic_commands(
+                string markupCode,
+                string expected)
+            {
+                var kernel = CreateKernel().UseKernelClientConnection(new ConnectSignalR());
+
+                markupCode
+                    .ParseMarkupCode()
+                    .PositionsInMarkedSpans()
+                    .Should()
+                    .ProvideCompletions(kernel)
+                    .Which
+                    .Should()
+                    .ContainSingle()
+                    .Which
+                    .Completions
+                    .Should()
+                    .ContainSingle()
+                    .Which
+                    .Documentation
+                    .Should()
+                    .Match($"*{expected}*");
+            }
+
             [Fact]
             public void Insertion_range_is_correct_for_option_completions()
             {
@@ -77,7 +107,7 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
                     .AllSatisfy(c =>
                                     c.LinePositionSpan
                                      .Should()
-                                     .BeEquivalentTo(new LinePositionSpan(
+                                     .BeEquivalentToRespectingRuntimeTypes(new LinePositionSpan(
                                                          new LinePosition(0, 8),
                                                          new LinePosition(0, 10))));
             }
@@ -97,7 +127,7 @@ namespace Microsoft.DotNet.Interactive.Tests.LanguageServices
                     .AllSatisfy(c =>
                                     c.LinePositionSpan
                                      .Should()
-                                     .BeEquivalentTo(new LinePositionSpan(
+                                     .BeEquivalentToRespectingRuntimeTypes(new LinePositionSpan(
                                                          new LinePosition(0, 0),
                                                          new LinePosition(0, 4))));
             }

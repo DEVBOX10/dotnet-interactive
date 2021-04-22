@@ -10,7 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
 
 namespace Microsoft.DotNet.Interactive.Formatting
 {
@@ -109,7 +109,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
 
             // In the lists of default formatters, the highest priority ones come first,
             // so register those last.
-            _defaultTypeFormatters.PushRange(TabularDataFormatter.DefaultFormatters.Reverse().ToArray());
+            _defaultTypeFormatters.PushRange(TabularDataResourceFormatter.DefaultFormatters.Reverse().ToArray());
             _defaultTypeFormatters.PushRange(HtmlFormatter.DefaultFormatters.Reverse().ToArray());
             _defaultTypeFormatters.PushRange(JsonFormatter.DefaultFormatters.Reverse().ToArray());
             _defaultTypeFormatters.PushRange(PlainTextFormatter.DefaultFormatters.Reverse().ToArray());
@@ -117,7 +117,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
 
             // It is unclear if we need this default:
             _defaultPreferredMimeTypes.Push((typeof(string), PlainTextFormatter.MimeType));
-            _defaultPreferredMimeTypes.Push((typeof(JToken), JsonFormatter.MimeType));
+            _defaultPreferredMimeTypes.Push((typeof(JsonElement), JsonFormatter.MimeType));
 
             ListExpansionLimit = 20;
             RecursionLimit = 6;
@@ -135,7 +135,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
 
         public static void SetPreferredMimeTypeFor(Type type, string preferredMimeType)
         {
-            if (type == null)
+            if (type is null)
             {
                 throw new ArgumentNullException(nameof(type));
             }
@@ -222,7 +222,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
             this object obj,
             string mimeType = PlainTextFormatter.MimeType)
         {
-            if (mimeType == null)
+            if (mimeType is null)
             {
                 throw new ArgumentNullException(nameof(mimeType));
             }
@@ -237,7 +237,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
             this object obj,
             ITypeFormatter formatter)
         {
-            if (formatter == null)
+            if (formatter is null)
             {
                 throw new ArgumentNullException(nameof(formatter));
             }
@@ -263,7 +263,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
             TextWriter writer,
             string mimeType = PlainTextFormatter.MimeType)
         {
-            if (obj != null)
+            if (obj is not null)
             {
                 var actualType = obj.GetType();
 
@@ -324,7 +324,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
             TextWriter writer,
             int? listExpansionLimit = null)
         {
-            if (list == null)
+            if (list is null)
             {
                 writer.Write(NullString);
                 return;
@@ -383,7 +383,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
         /// </summary>
         public static void Register(ITypeFormatter formatter)
         {
-            if (formatter == null)
+            if (formatter is null)
             {
                 throw new ArgumentNullException(nameof(formatter));
             }
@@ -397,6 +397,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
         /// Registers a formatter to be used when formatting instances of type <typeparamref name="T" />.
         /// </summary>
         /// <param name="formatter">The formatter.</param>
+        /// <param name="mimeType">The MimeType for this formatter. If it is not specified it defaults to <see cref="PlainTextFormatter.MimeType"/></param>
         public static void Register<T>(
             Func<FormatContext, T, TextWriter, bool> formatter,
             string mimeType = PlainTextFormatter.MimeType)
@@ -410,6 +411,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
         /// </summary>
         /// <param name="formatter">The formatter.</param>
         /// <param name="type">The type the formatter is registered for.</param>
+        /// <param name="mimeType">The MimeType for this formatter. If it is not specified it defaults to <see cref="PlainTextFormatter.MimeType"/></param>
         public static void Register(
             Type type,
             Func<FormatContext, object, TextWriter, bool> formatter,
@@ -423,6 +425,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
         /// </summary>
         /// <param name="formatter">The formatting action.</param>
         /// <param name="type">The type the formatter is registered for.</param>
+        /// <param name="mimeType">The MimeType for this formatter. If it is not specified it defaults to <see cref="PlainTextFormatter.MimeType"/></param>
         public static void Register(
             Type type,
             Action<object, TextWriter> formatter,
@@ -439,6 +442,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
         /// Registers a formatter to be used when formatting instances of type <typeparamref name="T" />.
         /// </summary>
         /// <param name="formatter">The formatting action.</param>
+        /// <param name="mimeType">The MimeType for this formatter. If it is not specified it defaults to <see cref="PlainTextFormatter.MimeType"/></param>
         public static void Register<T>(
             Action<T, TextWriter> formatter,
             string mimeType = PlainTextFormatter.MimeType)
@@ -454,6 +458,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
         /// Registers a formatter to be used when formatting instances of type <typeparamref name="T" />.
         /// </summary>
         /// <param name="formatter">The formatter.</param>
+        /// <param name="mimeType">The MimeType for this formatter. If it is not specified it defaults to <see cref="PlainTextFormatter.MimeType"/></param>
         public static void Register<T>(
             Func<T, string> formatter,
             string mimeType = PlainTextFormatter.MimeType,
@@ -494,18 +499,12 @@ namespace Microsoft.DotNet.Interactive.Formatting
         internal static ITypeFormatter InferPreferredFormatter(Type actualType, string mimeType)
         {
             // Try to find a user-specified type formatter, use the most specific type with a matching mime type
-            var userFormatter = TryInferPreferredFormatter(actualType, mimeType, _typeFormatters);
-            if (userFormatter != null)
-            {
+            if (TryInferPreferredFormatter(actualType, mimeType, _typeFormatters) is { } userFormatter)
                 return userFormatter;
-            }
 
             // Try to find a default built-in type formatter, use the most specific type with a matching mime type
-            var defaultFormatter = TryInferPreferredFormatter(actualType, mimeType, _defaultTypeFormatters);
-            if (defaultFormatter != null)
-            {
+            if (TryInferPreferredFormatter(actualType, mimeType, _defaultTypeFormatters) is { } defaultFormatter)
                 return defaultFormatter;
-            }
 
             // Last resort backup 
             return new AnonymousTypeFormatter<object>((context, obj, writer) =>
@@ -545,9 +544,7 @@ namespace Microsoft.DotNet.Interactive.Formatting
                         }
                     }
 
-                    {
-                        return false;
-                    }
+                    return false;
                 }, mimeType);
             }
 

@@ -24,17 +24,17 @@ namespace Microsoft.DotNet.Interactive.Extensions
             Kernel kernel,
             KernelInvocationContext context)
         {
-            if (directory == null)
+            if (directory is null)
             {
                 throw new ArgumentNullException(nameof(directory));
             }
 
-            if (kernel == null)
+            if (kernel is null)
             {
                 throw new ArgumentNullException(nameof(kernel));
             }
 
-            if (context == null)
+            if (context is null)
             {
                 throw new ArgumentNullException(nameof(context));
             }
@@ -87,12 +87,12 @@ namespace Microsoft.DotNet.Interactive.Extensions
             Kernel kernel,
             KernelInvocationContext context)
         {
-            if (assemblyFile == null)
+            if (assemblyFile is null)
             {
                 throw new ArgumentNullException(nameof(assemblyFile));
             }
 
-            if (kernel == null)
+            if (kernel is null)
             {
                 throw new ArgumentNullException(nameof(kernel));
             }
@@ -118,18 +118,19 @@ namespace Microsoft.DotNet.Interactive.Extensions
                                      .Where(t => t.CanBeInstantiated() && typeof(IKernelExtension).IsAssignableFrom(t))
                                      .ToArray();
 
+                if (extensionTypes.Any())
+                {
+                    context.Display($"Loading extensions from `{assemblyFile.Name}`", "text/markdown");
+                }
+
                 foreach (var extensionType in extensionTypes)
                 {
                     var extension = (IKernelExtension) Activator.CreateInstance(extensionType);
 
-                    var displayed = context.Display(
-                                        $"Loading kernel extension \"{extensionType.Name}\" from assembly {assemblyFile.FullName}");
-
                     try
                     {
                         await extension.OnLoadAsync(kernel);
-                        context.Publish(new KernelExtensionLoaded(extension));
-                        displayed.Update($"Loaded {extension}");
+                        context.Publish(new KernelExtensionLoaded(extension, context.Command));
                     }
                     catch (Exception e)
                     {

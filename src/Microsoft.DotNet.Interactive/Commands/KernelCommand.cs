@@ -4,7 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 
 namespace Microsoft.DotNet.Interactive.Commands
 {
@@ -12,25 +12,17 @@ namespace Microsoft.DotNet.Interactive.Commands
     {
         protected KernelCommand(string targetKernelName = null, KernelCommand parent = null)
         {
-            if (parent is null)
-            {
-                parent = KernelInvocationContext.Current?.Command;
-
-                if (parent != this)
-                {
-                    Parent = parent;
-                }
-            }
-
             Properties = new Dictionary<string, object>(StringComparer.InvariantCultureIgnoreCase);
 
             TargetKernelName = targetKernelName;
+
+            Parent = parent;
         }
 
         [JsonIgnore]
         public KernelCommandInvocation Handler { get; set; }
 
-        [JsonIgnore]   
+        [JsonIgnore]
         public KernelCommand Parent { get; internal set; }
 
         [JsonIgnore]
@@ -38,9 +30,14 @@ namespace Microsoft.DotNet.Interactive.Commands
 
         public string TargetKernelName { get; internal set; }
 
+        internal static KernelCommand None { get; } = new NoCommand();
+
+        [JsonIgnore]
+        internal KernelUri KernelUri { get; set; }
+
         public virtual Task InvokeAsync(KernelInvocationContext context)
         {
-            if (Handler == null)
+            if (Handler is null)
             {
                 throw new NoSuitableKernelException(this);
             }

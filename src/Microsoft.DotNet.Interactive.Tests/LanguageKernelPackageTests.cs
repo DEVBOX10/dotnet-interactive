@@ -3,13 +3,16 @@
 
 using System;
 using System.IO;
-using FluentAssertions;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using FluentAssertions;
+using FluentAssertions.Execution;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
+using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.FSharp;
 using Microsoft.DotNet.Interactive.Jupyter;
 using Microsoft.DotNet.Interactive.Tests.Utility;
@@ -17,8 +20,6 @@ using Newtonsoft.Json;
 using Recipes;
 using Xunit;
 using Xunit.Abstractions;
-using System.Runtime.InteropServices;
-using Microsoft.CodeAnalysis.Text;
 
 namespace Microsoft.DotNet.Interactive.Tests
 {
@@ -315,9 +316,10 @@ catch (Exception e)
 #r ""nuget:Microsoft.Data.Analysis,0.4.0""
 ");
 
-            await kernel.SubmitCodeAsync(@"
+            await kernel.SubmitCodeAsync($@"
 using Microsoft.Data.Analysis;
-using XPlot.Plotly;");
+using static {typeof(PocketViewTags).FullName};
+using {typeof(PocketView).Namespace};");
 
             await kernel.SubmitCodeAsync(@"
 using Microsoft.AspNetCore.Html;
@@ -423,18 +425,86 @@ Formatter.Register<DataFrame>((df, writer) =>
 
             using var events = kernel.KernelEvents.ToSubscribedList();
 
-            await kernel.SubmitCodeAsync(@"#i ""nuget:https://completelyFakerestoreSource""");
+            await kernel.SubmitCodeAsync(@"
+#i ""nuget:https://completelyFakerestoreSource1""
+#i ""nuget:https://completelyFakerestoreSource2""
+");
+            events.OfType<DisplayEvent>().Select(e => e.GetType()).Should().ContainInOrder(typeof(DisplayedValueProduced), typeof(DisplayedValueUpdated));
+        }
 
+        [Theory]
+        [InlineData(Language.CSharp)]
+        [InlineData(Language.FSharp)]
+        public async Task Pound_i_nuget_with_multi_submissions_combines_the_Text_Produced(Language language)
+        {
+            var kernel = CreateKernel(language);
+
+            await kernel.SubmitCodeAsync(@"
+#i ""nuget:https://completelyFakerestoreSourceCommand1.1""
+#i ""nuget:https://completelyFakerestoreSourceCommand1.2""
+");
+
+            var result = await kernel.SubmitCodeAsync(@"
+#i ""nuget:https://completelyFakerestoreSourceCommand2.1""
+");
+
+            var expectedList = new[]
+            {
+                "https://completelyFakerestoreSourceCommand1.1",
+                "https://completelyFakerestoreSourceCommand1.2",
+                "https://completelyFakerestoreSourceCommand2.1"
+            };
+
+            using var events = result.KernelEvents.ToSubscribedList();
+
+            // For the DisplayedValueUpdated events strip out the restore sources
+            // Verify that they match the expected values
             events.Should()
                   .ContainSingle<DisplayedValueProduced>()
-                  .Which
-                  .FormattedValues
+                  .Which.FormattedValues
                   .Should()
-                  .ContainSingle(v => v.MimeType == "text/html")
-                  .Which
-                  .Value
+                  .ContainSingle(e => e.MimeType == HtmlFormatter.MimeType)
+                  .Which.Value
                   .Should()
-                  .ContainAll("Restore sources", "https://completelyFakerestoreSource");
+                  .ContainAll(expectedList);
+        }
+
+        [Theory]
+        [InlineData(Language.CSharp)]
+        [InlineData(Language.FSharp)]
+        public async Task Pound_i_nuget_with_multi_submissions_combines_the_Text_Updates(Language language)
+        {
+            var kernel = CreateKernel(language);
+
+            await kernel.SubmitCodeAsync(@"
+#i ""nuget:https://completelyFakerestoreSourceCommand1.1""
+#i ""nuget:https://completelyFakerestoreSourceCommand1.2""
+");
+
+            var result = await kernel.SubmitCodeAsync(@"
+#i ""nuget:https://completelyFakerestoreSourceCommand2.1""
+#i ""nuget:https://completelyFakerestoreSourceCommand2.2""
+");
+
+            var expectedList = new[]
+            {
+                "https://completelyFakerestoreSourceCommand1.1",
+                "https://completelyFakerestoreSourceCommand1.2",
+                "https://completelyFakerestoreSourceCommand2.1",
+                "https://completelyFakerestoreSourceCommand2.2"
+            };
+
+            using var events = result.KernelEvents.ToSubscribedList();
+
+            // For the DisplayedValueUpdated events strip out the restore sources
+            // Verify that they match the expected values
+            events.OfType<DisplayedValueUpdated>()
+                  .Last().FormattedValues
+                  .Should()
+                  .ContainSingle(e => e.MimeType == HtmlFormatter.MimeType)
+                  .Which.Value
+                  .Should()
+                  .ContainAll(expectedList);
         }
 
         [Theory]
@@ -632,7 +702,6 @@ Formatter.Register<DataFrame>((df, writer) =>
         {
             var csk =
                     new CSharpKernel()
-                        .UseDefaultFormatting()
                         .UseNugetDirective()
                         .UseKernelHelpers()
                         .UseWho()
@@ -659,10 +728,10 @@ Formatter.Register<DataFrame>((df, writer) =>
 
             var command = new SubmitCode(@"#r ""nuget:Octokit, 0.32.0""
 #r ""nuget:NodaTime, 2.4.6""
+
 using Octokit;
 using NodaTime;
-using NodaTime.Extensions;
-using XPlot.Plotly;");
+using NodaTime.Extensions;");
 
             await kernel.SendAsync(command, CancellationToken.None);
 
@@ -812,17 +881,11 @@ using XPlot.Plotly;");
 
         [Theory]
         [InlineData(Language.CSharp)]
-        //[InlineData(Language.FSharp)]   /// Reenable when --- https://github.com/dotnet/fsharp/issues/8775
+        [InlineData(Language.FSharp)]
         public async Task Pound_r_nuget_does_not_accept_invalid_keys(Language language)
         {
             var kernel = CreateKernel(language);
 
-            // C# and F# should both fail, but the messages will be different because they handle it differently internally.
-            var expectedMessage = language switch
-            {
-                Language.CSharp => "Metadata file 'nugt:System.Text.Json' could not be found",
-                Language.FSharp => "interactive error Package manager key 'nugt' was not registered"
-            };
             using var events = kernel.KernelEvents.ToSubscribedList();
 
             // nugt is an invalid provider key should fail
@@ -837,7 +900,14 @@ using XPlot.Plotly;");
                  .Which
                  .Value
                  .Should()
-                 .Contain(expectedMessage);
+                 .ContainAll(
+                    // C# and F# should both fail, but the messages will be different because they handle it differently internally.
+                    language switch
+                    { 
+                        Language.CSharp => new[] { "CS0006", "nugt:System.Text.Json" },
+                        Language.FSharp => new[] { "interactive error", "nugt" }
+                    }
+                );
         }
 
         [Theory]
@@ -858,7 +928,7 @@ using XPlot.Plotly;");
                   .Which
                   .Message
                   .Should()
-                  .Contain($"error NU1101: Unable to find package {nonexistentPackageName}. No packages exist with this id in source(s): ");
+                  .Contain($"error NU1101:", nonexistentPackageName);
         }
 
         [Theory]
@@ -949,14 +1019,17 @@ typeof(System.Device.Gpio.GpioController).Assembly.Location
             // (OSPlatform.OSX is not supported by this library
         }
 
-        [Fact]
-        public async Task Pound_r_nuget_works_immediately_after_a_language_selector()
+        [Theory]
+        [InlineData(Language.CSharp)]
+        [InlineData(Language.FSharp)]
+        [InlineData(Language.PowerShell)]
+        public async Task Pound_r_nuget_works_immediately_after_a_language_selector(Language defaultLanguageKernel)
         {
-            var kernel = CreateCompositeKernel(defaultKernelLanguage: Language.CSharp);
+            var kernel = CreateCompositeKernel(defaultLanguageKernel);
 
             var code = @"
 #!csharp
-#r ""nuget: System.Text.Json, 4.6.0""
+#r ""nuget:Newtonsoft.Json,11.0.2""
 ";
 
             var command = new SubmitCode(code);
@@ -965,6 +1038,8 @@ typeof(System.Device.Gpio.GpioController).Assembly.Location
 
             using var events = result.KernelEvents.ToSubscribedList();
 
+            using var _ = new AssertionScope();
+
             events
                 .Should()
                 .ContainSingle<PackageAdded>()
@@ -972,7 +1047,12 @@ typeof(System.Device.Gpio.GpioController).Assembly.Location
                 .PackageReference
                 .PackageName
                 .Should()
-                .Be("System.Text.Json");
+                .Be("Newtonsoft.Json");
+
+            kernel.FindKernel("csharp").As<CSharpKernel>()
+                .RequestedPackageReferences
+                .Should()
+                .ContainSingle(p => p.PackageName == "Newtonsoft.Json");
         }
     }
 }

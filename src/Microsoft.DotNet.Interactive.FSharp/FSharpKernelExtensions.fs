@@ -1,4 +1,7 @@
-﻿namespace Microsoft.DotNet.Interactive.FSharp
+﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
+namespace Microsoft.DotNet.Interactive.FSharp
 
 open System
 open System.Runtime.CompilerServices
@@ -7,7 +10,6 @@ open Microsoft.DotNet.Interactive
 open Microsoft.DotNet.Interactive.Commands
 open Microsoft.DotNet.Interactive.FSharp
 open Microsoft.DotNet.Interactive.Formatting
-open XPlot.Plotly
 
 [<AbstractClass; Extension; Sealed>]
 type FSharpKernelExtensions private () =
@@ -22,7 +24,6 @@ type FSharpKernelExtensions private () =
                 referenceFromType typeof<IHtmlContent>
                 referenceFromType typeof<Kernel>
                 referenceFromType typeof<FSharpKernelHelpers.IMarker>
-                referenceFromType typeof<PlotlyChart>
                 referenceFromType typeof<Formatter>
 
                 openNamespaceOrType typeof<System.Console>.Namespace

@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="JetBrains.Profiler.Api" Version="1.1.5" />
+    <PackageReference Include="JetBrains.Profiler.Api" Version="1.1.7" />
     <PackageReference Include="System.CommandLine.DragonFruit" Version="0.3.0-alpha.20309.1" />
   </ItemGroup>
 
@@ -17,7 +17,6 @@
     <ProjectReference Include="..\Microsoft.DotNet.Interactive.FSharp\Microsoft.DotNet.Interactive.FSharp.fsproj" />
     <ProjectReference Include="..\Microsoft.DotNet.Interactive.Jupyter\Microsoft.DotNet.Interactive.Jupyter.csproj" />
     <ProjectReference Include="..\Microsoft.DotNet.Interactive\Microsoft.DotNet.Interactive.csproj" />
-    <ProjectReference Include="..\XPlot.DotNet.Interactive.KernelExtensions\XPlot.DotNet.Interactive.KernelExtensions.csproj" />
   </ItemGroup>
 
 </Project>

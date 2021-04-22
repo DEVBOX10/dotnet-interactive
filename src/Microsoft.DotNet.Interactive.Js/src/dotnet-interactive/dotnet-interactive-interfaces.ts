@@ -1,7 +1,7 @@
 // Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-import { KernelEventEnvelopeObserver, DisposableSubscription } from "./contracts";
+import { KernelEventEnvelopeObserver, DisposableSubscription, KernelCommandEnvelopeObserver, KernelCommand, KernelEvent, KernelCommandEnvelope, KernelEventEnvelope, Disposable } from "./contracts";
 
 
 export interface VariableRequest {
@@ -20,8 +20,33 @@ export interface KernelClient {
     submitCommand(commandType: string, command?: any): Promise<string>;
 }
 
+export interface KernelInvocationContext extends Disposable {
+    subscribeToKernelEvents(observer: IKernelEventObserver): DisposableSubscription;
+    complete(command: KernelCommand): void;
+    fail(message?: string): void
+    publish(kernelEvent: { event: KernelEvent, eventType: string, command: KernelCommand, commandType: string }): void;
+    command: KernelCommand;
+}
+
+export interface IKernelCommandHandler {
+    commandType: string;
+    handle: (kernelCommandInvocation: { command: KernelCommand, context: KernelInvocationContext }) => Promise<void>
+}
+
+export interface IKernelEventObserver {
+    (kernelEvent: { event: KernelEvent, eventType: string, command: KernelCommand, commandType: string }): void;
+}
+
+// Implemented by the client-side kernel.
+export interface Kernel {
+    send(kernelCommand: { command: KernelCommand, commandType: string }): Promise<void>;
+    subscribeToKernelEvents(observer: KernelEventEnvelopeObserver): DisposableSubscription;
+    registerCommandHandler(handler: IKernelCommandHandler): void;
+}
+
 export interface DotnetInteractiveClient {
     subscribeToKernelEvents(observer: KernelEventEnvelopeObserver): DisposableSubscription;
+    registerCommandHandler(handler: IKernelCommandHandler): void;
     getVariable(kernelName: string, variableName: string): Promise<any>;
     getVariables(variableRequest: VariableRequest): Promise<VariableResponse>;
     getResource(resource: string): Promise<Response>;
@@ -32,6 +57,11 @@ export interface DotnetInteractiveClient {
     submitCode(code: string, targetKernelName?: string): Promise<string>;
     submitCommand(commandType: string, command?: any, targetKernelName?: string): Promise<string>;
     configureRequire(config: any): any;
+
+    getConsole(commandToken: string): any;
+    markExecutionComplete(commandToken: string): Promise<void>;
+    failCommand(err: any, commandToken: string): void;
+    waitForAllEventsToPublish(commandToken: string): Promise<void>;
 }
 
 export interface KernelClientContainer {

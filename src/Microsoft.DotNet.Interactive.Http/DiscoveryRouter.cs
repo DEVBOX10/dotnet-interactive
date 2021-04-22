@@ -12,9 +12,9 @@ namespace Microsoft.DotNet.Interactive.Http
 {
     public class DiscoveryRouter : IRouter
     {
-        private readonly HtmlNotebookFrontedEnvironment _frontendEnvironment;
+        private readonly HtmlNotebookFrontendEnvironment _frontendEnvironment;
 
-        public DiscoveryRouter(HtmlNotebookFrontedEnvironment frontendEnvironment)
+        public DiscoveryRouter(HtmlNotebookFrontendEnvironment frontendEnvironment)
         {
             _frontendEnvironment = frontendEnvironment;
         }

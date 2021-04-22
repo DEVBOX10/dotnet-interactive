@@ -8,12 +8,28 @@ using FluentAssertions;
 using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Tests.Utility;
+using Pocket;
+using Pocket.For.Xunit;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Microsoft.DotNet.Interactive.Tests
 {
-    public class ConnectDirectiveTests
+    [LogToPocketLogger(FileNameEnvironmentVariable = "POCKETLOGGER_LOG_PATH")]
+    public class ConnectDirectiveTests : IDisposable
     {
+        private readonly CompositeDisposable _disposables = new();
+
+        public ConnectDirectiveTests(ITestOutputHelper output)
+        {
+            _disposables.Add(output.SubscribeToPocketLogger());
+        }
+
+        public void Dispose()
+        {
+            _disposables.Dispose();
+        }
+
         [Fact]
         public void connect_command_is_not_available_by_default()
         {
@@ -79,7 +95,6 @@ namespace Microsoft.DotNet.Interactive.Tests
 hello!
 ");
             wasCalled.Should().BeTrue();
-
         }
 
         [Fact]
@@ -106,7 +121,7 @@ hello!
             compositeKernel.UseKernelClientConnection(
                 new ConnectFakeKernel("fake", "Connects the fake kernel")
                 {
-                    CreateKernel = (options, context) => Task.FromResult<Kernel>(new FakeKernel())
+                    CreateKernel = (options, context) => Task.FromResult<Kernel>(new FakeKernel(options.KernelName))
                 });
 
             await compositeKernel.SubmitCodeAsync("#!connect fake --kernel-name fake-kernel");
@@ -135,7 +150,7 @@ hello!
             compositeKernel.UseKernelClientConnection(
                 new ConnectFakeKernel("fake", "Connects the fake kernel")
                 {
-                    CreateKernel = (options, context) => Task.FromResult<Kernel>(new FakeKernel())
+                    CreateKernel = (options, context) => Task.FromResult<Kernel>(new FakeKernel(options.KernelName))
                 });
 
             await compositeKernel.SubmitCodeAsync("#!connect fake --kernel-name fake1");
@@ -158,7 +173,14 @@ hello!
             compositeKernel.UseKernelClientConnection(
                 new ConnectFakeKernel("fake", "Connects the fake kernel")
                 {
-                    CreateKernel = (options, context) => Task.FromResult<Kernel>(fakeKernel ?? new FakeKernel())
+                    CreateKernel = (options, context) =>
+                    {
+                        var kernel = fakeKernel ?? new FakeKernel();
+
+                        kernel.Name = options.KernelName;
+                       
+                        return Task.FromResult<Kernel>(kernel);
+                    }
                 });
 
             return compositeKernel;

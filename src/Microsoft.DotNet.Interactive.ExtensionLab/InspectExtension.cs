@@ -1,8 +1,6 @@
 ﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using System;
-using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Text.RegularExpressions;
@@ -40,6 +38,12 @@ namespace Microsoft.DotNet.Interactive.ExtensionLab
 
             kernel.AddDirective(inspect);
 
+            KernelInvocationContext.Current?.Display(
+                new HtmlString(@"<details><summary>Inspect code compilation details using the <code>#!inspect</code> magic command.</summary>
+    <p>The <code>#!inspect</code> magic command allows you to see the C# decompilation, IL, and JIT Asm for the code in a C# cell.</p>
+    <img src=""https://user-images.githubusercontent.com/547415/109560515-d5749a00-7a90-11eb-9fa3-51b737345bb4.png"" width=""75%"" />
+    </details>"),
+                "text/html");
 
             return Task.CompletedTask;
         }

@@ -4,13 +4,10 @@
 using System;
 using System.Threading.Tasks;
 using JetBrains.Profiler.Api;
-using Microsoft.CodeAnalysis.Text;
-using Microsoft.DotNet.Interactive.App;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.FSharp;
 using Microsoft.DotNet.Interactive.Jupyter;
-using XPlot.DotNet.Interactive.KernelExtensions;
 
 namespace Microsoft.DotNet.Interactive.Profiler
 {
@@ -98,12 +95,10 @@ Console.Write(""value three"")", "fsharp");
             var kernel = new CompositeKernel
                 {
                     new CSharpKernel()
-                        .UseDefaultFormatting()
                         .UseNugetDirective()
                         .UseKernelHelpers()
                         .UseJupyterHelpers()
                         .UseWho()
-                        .UseXplot()
                         .UseMathAndLaTeX(),
                     new FSharpKernel()
                         .UseDefaultFormatting()
@@ -111,7 +106,6 @@ Console.Write(""value three"")", "fsharp");
                         .UseKernelHelpers()
                         .UseWho()
                         .UseDefaultNamespaces()
-                        .UseXplot()
                         .UseMathAndLaTeX()
                 }
                 .UseDefaultMagicCommands();

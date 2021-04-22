@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Linq;
@@ -9,14 +10,13 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
+using Microsoft.AspNetCore.Html;
 using Microsoft.Data.Analysis;
-using Microsoft.DotNet.Interactive;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
+using Microsoft.DotNet.Interactive.ExtensionLab;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.ML;
-
-using Newtonsoft.Json.Linq;
 
 namespace Microsoft.DotNet.Interactive.ExtensionLab
 {
@@ -76,8 +76,10 @@ namespace Microsoft.DotNet.Interactive.ExtensionLab
             });
 
             KernelInvocationContext.Current?.Display(
-                $@"Added the `#!linqify` magic command.",
-                "text/markdown");
+                new HtmlString($@"<details><summary>Create strongly-typed dataframes using<code>#!linqify</code>.</summary>
+    <p>The <code>#!linqify</code> magic command replaces a <a href=""https://www.nuget.org/packages/Microsoft.Data.Analysis/""><code>Microsoft.Data.Analysis.DataFrame</code></a> variable with a generated, strongly-typed data frame, allowing the use of LINQ operations over the contained data.</p>
+    </details>"),
+                "text/html");
 
             return Task.CompletedTask;
         }
@@ -88,7 +90,7 @@ namespace Microsoft.DotNet.Interactive.ExtensionLab
             {
                 var tabularData = dataView.ToTabularJsonString();
                 writer.Write(tabularData.ToString());
-            }, TabularDataFormatter.MimeType);
+            }, TabularDataResourceFormatter.MimeType);
         }
 
         public string BuildTypedDataFrameCode(
@@ -152,11 +154,14 @@ namespace Microsoft.ML
 {
     public static class DataViewExtensions
     {
-        public static void Explore(this IDataView source)
+        public static SandDanceDataExplorer ExploreWithSandDance(this IDataView source)
         {
-            KernelInvocationContext.Current.Display(
-                source.ToTabularJsonString(),
-                HtmlFormatter.MimeType);
+            return source.ToTabularDataResource().ExploreWithSandDance();
+        }
+
+        public static NteractDataExplorer ExploreWithNteract(this IDataView source)
+        {
+            return source.ToTabularDataResource().ExploreWithNteract();
         }
 
         private static T GetValue<T>(ValueGetter<T> valueGetter)
@@ -166,23 +171,23 @@ namespace Microsoft.ML
             return value;
         }
 
-        public static TabularJsonString ToTabularJsonString(this IDataView source)
+        public static TabularDataResource ToTabularDataResource(this IDataView source)
         {
             var fields = source.Schema.ToDictionary(column => column.Name, column => column.Type.RawType);
-            var data = new JArray();
+            var data = new List<Dictionary<string, object>>();
 
             var cursor = source.GetRowCursor(source.Schema);
 
             while (cursor.MoveNext())
             {
-                var rowObj = new JObject();
+                var rowObj = new Dictionary<string, object>();
 
                 foreach (var column in source.Schema)
                 {
                     var type = column.Type.RawType;
                     var getGetterMethod = cursor.GetType()
-                                                .GetMethod(nameof(cursor.GetGetter))
-                                                .MakeGenericMethod(type);
+                        .GetMethod(nameof(cursor.GetGetter))
+                        .MakeGenericMethod(type);
 
                     var valueGetter = getGetterMethod.Invoke(cursor, new object[] { column });
 
@@ -193,17 +198,26 @@ namespace Microsoft.ML
                         value = value.ToString();
                     }
 
-                    var fromObject = JToken.FromObject(value);
-
-                    rowObj.Add(column.Name, fromObject);
+                    rowObj.Add(column.Name, value);
                 }
 
                 data.Add(rowObj);
             }
 
-            var tabularData = TabularJsonString.Create(fields, data);
+            var schema = new TableSchema();
 
-            return tabularData;
+            foreach (var (fieldName, fieldValue) in fields)
+            {
+                schema.Fields.Add(new TableSchemaFieldDescriptor(fieldName, fieldValue.ToTableSchemaFieldType()));
+            }
+
+            return new TabularDataResource(schema, data);
+        }
+
+        public static TabularDataResourceJsonString ToTabularJsonString(this IDataView source)
+        {
+            var tabularDataResource = source.ToTabularDataResource();
+            return tabularDataResource.ToJson();
         }
     }
 }
