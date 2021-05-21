@@ -10,73 +10,55 @@ import * as diagnostics from './common/vscode/diagnostics';
 import * as utilities from './common/utilities';
 import * as versionSpecificFunctions from './versionSpecificFunctions';
 import * as vscodeUtilities from './common/vscode/vscodeUtilities';
-import { getSimpleLanguage, notebookCellLanguages } from './common/interactiveNotebook';
-import { getCellLanguage, getDotNetMetadata, getLanguageInfoMetadata, withDotNetKernelMetadata } from './common/ipynbUtilities';
+import { getSimpleLanguage, isDotnetInteractiveLanguage, notebookCellLanguages } from './common/interactiveNotebook';
+import { getCellLanguage, getDotNetMetadata, getLanguageInfoMetadata, isDotNetNotebookMetadata, withDotNetKernelMetadata } from './common/ipynbUtilities';
 import { reshapeOutputValueForVsCode } from './common/interfaces/utilities';
-import { isStableBuild } from './common/vscode/vscodeUtilities';
+import { selectDotNetInteractiveKernel } from './common/vscode/commands';
 
-const executionTasks: Map<vscode.Uri, vscode.NotebookCellExecutionTask> = new Map();
+const executionTasks: Map<string, vscode.NotebookCellExecutionTask> = new Map();
+
+const viewType = 'dotnet-interactive';
+const jupyterViewType = 'jupyter-notebook';
 
 export class DotNetNotebookKernel {
 
     private disposables: { dispose(): void }[] = [];
 
     constructor(private readonly clientMapper: ClientMapper, preloadUris: vscode.Uri[]) {
-        const preloads = preloadUris.map(uri => ({ uri }));
+        const preloads = preloadUris.map(uri => new vscode.NotebookKernelPreload(uri));
 
         // .dib execution
         const dibController = vscode.notebook.createNotebookController(
             'dotnet-interactive',
-            { viewType: 'dotnet-interactive' },
+            viewType,
             '.NET Interactive',
             this.executeHandler.bind(this),
             preloads
         );
-        dibController.isPreferred = true;
         this.commonControllerInit(dibController);
 
-        // .ipynb execution via this extension
-        if (isStableBuild()) {
-            const ipynbController = vscode.notebook.createNotebookController(
-                'dotnet-interactive-jupyter',
-                { viewType: 'dotnet-interactive-jupyter' },
-                '.NET Interactive',
-                this.executeHandler.bind(this), // handler
-                preloads
-            );
-            ipynbController.isPreferred = false;
-            this.commonControllerInit(ipynbController);
-        }
-
-        // .ipynb execution via Jupyter extension
+        // .ipynb execution via Jupyter extension (optional)
         const jupyterController = vscode.notebook.createNotebookController(
             'dotnet-interactive-for-jupyter',
-            { viewType: 'jupyter-notebook' },
+            jupyterViewType,
             '.NET Interactive',
             this.executeHandler.bind(this),
             preloads
         );
-        jupyterController.isPreferred = false;
         jupyterController.onDidChangeNotebookAssociation(async e => {
+            // update metadata
             if (e.selected) {
-                try {
-                    // update various metadata
-                    await updateDocumentKernelspecMetadata(e.notebook);
-                    await updateCellLanguages(e.notebook);
-
-                    // force creation of the client so we don't have to wait for the user to execute a cell to get the tool
-                    await clientMapper.getOrAddClient(e.notebook.uri);
-                } catch (err) {
-                    vscode.window.showErrorMessage(`Failed to set document metadata for '${e.notebook.uri}': ${err}`);
-                }
-            } else if (isStableBuild()) {
-                // `e.notebook.metadata.custom` is deprecated but still used by the Jupyter extension; soon the metadata will change to something like this:
-                //    e.notebook.metadata['kernelspec']?.name;
-                const kernelspecName = e.notebook.metadata?.custom?.metadata?.kernelspec?.name;
-                await vscodeUtilities.offerToReOpen(e.notebook, kernelspecName);
+                await updateNotebookMetadata(e.notebook, clientMapper);
             }
         });
         this.commonControllerInit(jupyterController);
+        this.disposables.push(vscode.notebook.onDidOpenNotebookDocument(async notebook => {
+            if (notebook.viewType === jupyterViewType && isDotNetNotebook(notebook)) {
+                jupyterController.updateNotebookAffinity(notebook, vscode.NotebookControllerAffinity.Preferred);
+                await selectDotNetInteractiveKernel();
+                await updateNotebookMetadata(notebook, clientMapper);
+            }
+        }));
     }
 
     dispose(): void {
@@ -106,7 +88,7 @@ export class DotNetNotebookKernel {
         this.disposables.push(controller);
     }
 
-    private async executeHandler(cells: vscode.NotebookCell[], controller: vscode.NotebookController): Promise<void> {
+    private async executeHandler(cells: vscode.NotebookCell[], document: vscode.NotebookDocument, controller: vscode.NotebookController): Promise<void> {
         for (const cell of cells) {
             await this.executeCell(cell, controller);
         }
@@ -115,12 +97,12 @@ export class DotNetNotebookKernel {
     private async executeCell(cell: vscode.NotebookCell, controller: vscode.NotebookController): Promise<void> {
         const executionTask = controller.createNotebookCellExecutionTask(cell);
         if (executionTask) {
-            executionTasks.set(cell.document.uri, executionTask);
+            executionTasks.set(cell.document.uri.toString(), executionTask);
             try {
                 executionTask.start({
                     startTime: Date.now(),
                 });
-                setCellLockState(cell, true);
+
                 executionTask.clearOutput(cell.index);
                 const client = await this.clientMapper.getOrAddClient(cell.notebook.uri);
                 executionTask.token.onCancellationRequested(() => {
@@ -144,10 +126,7 @@ export class DotNetNotebookKernel {
 
                 return client.execute(source, getSimpleLanguage(cell.document.languageId), outputObserver, diagnosticObserver, { id: cell.document.uri.toString() }).then(() =>
                     endExecution(cell, true)
-                ).catch(() => endExecution(cell, false)
-                ).then(() => {
-                    return updateCellLanguages(cell.notebook);
-                });
+                ).catch(() => endExecution(cell, false));
             } catch (err) {
                 const errorOutput = utilities.createErrorOutput(`Error executing cell: ${err}`);
                 await updateCellOutputs(executionTask, cell, [errorOutput]);
@@ -158,38 +137,44 @@ export class DotNetNotebookKernel {
     }
 }
 
+async function updateNotebookMetadata(notebook: vscode.NotebookDocument, clientMapper: ClientMapper): Promise<void> {
+    try {
+        // update various metadata
+        await updateDocumentKernelspecMetadata(notebook);
+        await updateCellLanguages(notebook);
+
+        // force creation of the client so we don't have to wait for the user to execute a cell to get the tool
+        await clientMapper.getOrAddClient(notebook.uri);
+    } catch (err) {
+        vscode.window.showErrorMessage(`Failed to set document metadata for '${notebook.uri}': ${err}`);
+    }
+}
+
 export async function updateCellLanguages(document: vscode.NotebookDocument): Promise<void> {
     const documentLanguageInfo = getLanguageInfoMetadata(document.metadata);
 
     // update cell language
-    let applyUpdate = false;
-    let cellDatas: Array<vscode.NotebookCellData> = [];
-    for (const cell of versionSpecificFunctions.getCells(document)) {
+    const edit = new vscode.WorkspaceEdit();
+    for (let i = 0; i < document.cellCount; i++) {
+        const cell = document.cellAt(i);
         const cellMetadata = getDotNetMetadata(cell.metadata);
         const cellText = cell.document.getText();
-        const newLanguage = getCellLanguage(cellText, cellMetadata, documentLanguageInfo, cell.document.languageId);
-        const cellData = new vscode.NotebookCellData(
-            cell.kind,
-            cellText,
-            newLanguage,
-            cell.outputs.concat(), // can't pass through a readonly property, so we have to make it a regular array
-            cell.metadata,
-        );
-        cellDatas.push(cellData);
-        applyUpdate ||= cell.document.languageId !== newLanguage;
+        const newLanguage = cell.kind === vscode.NotebookCellKind.Code
+            ? getCellLanguage(cellText, cellMetadata, documentLanguageInfo, cell.document.languageId)
+            : 'markdown';
+        if (cell.document.languageId !== newLanguage) {
+            const newCellData = new vscode.NotebookCellData(
+                cell.kind,
+                cellText,
+                newLanguage,
+                cell.outputs.concat(), // can't pass through a readonly property, so we have to make it a regular array
+                cell.metadata,
+            );
+            edit.replaceNotebookCells(document.uri, new vscode.NotebookRange(i, i + 1), [newCellData]);
+        }
     }
 
-    if (applyUpdate) {
-        const edit = new vscode.WorkspaceEdit();
-        edit.replaceNotebookCells(document.uri, new vscode.NotebookRange(0, document.cellCount), cellDatas);
-        await vscode.workspace.applyEdit(edit);
-    }
-}
-
-function setCellLockState(cell: vscode.NotebookCell, locked: boolean) {
-    const edit = new vscode.WorkspaceEdit();
-    edit.replaceNotebookCellMetadata(cell.notebook.uri, cell.index, cell.metadata.with({ editable: !locked }));
-    return vscode.workspace.applyEdit(edit);
+    await vscode.workspace.applyEdit(edit);
 }
 
 async function updateCellOutputs(executionTask: vscode.NotebookCellExecutionTask, cell: vscode.NotebookCell, outputs: Array<vscodeLike.NotebookCellOutput>): Promise<void> {
@@ -198,10 +183,11 @@ async function updateCellOutputs(executionTask: vscode.NotebookCellExecutionTask
 }
 
 export function endExecution(cell: vscode.NotebookCell, success: boolean) {
-    setCellLockState(cell, false);
-    const executionTask = executionTasks.get(cell.document.uri);
+
+    const key = cell.document.uri.toString();
+    const executionTask = executionTasks.get(key);
     if (executionTask) {
-        executionTasks.delete(cell.document.uri);
+        executionTasks.delete(key);
         executionTask.end({
             success,
             endTime: Date.now(),
@@ -217,23 +203,25 @@ function generateVsCodeNotebookCellOutputItem(mimeType: string, value: unknown):
 async function updateDocumentKernelspecMetadata(document: vscode.NotebookDocument): Promise<void> {
     const edit = new vscode.WorkspaceEdit();
     const documentKernelMetadata = withDotNetKernelMetadata(document.metadata);
-
-    // workaround for https://github.com/microsoft/vscode/issues/115912; capture all cell data so we can re-apply it at the end
-    const cellData: Array<vscode.NotebookCellData> = versionSpecificFunctions.getCells(document).map(c => {
-        return new vscode.NotebookCellData(
-            c.kind,
-            c.document.getText(),
-            c.document.languageId,
-            c.outputs.concat(), // can't pass through a readonly property, so we have to make it a regular array
-            c.metadata,
-        );
-    });
-
     edit.replaceNotebookMetadata(document.uri, documentKernelMetadata);
-
-    // this is the re-application for the workaround mentioned above
-    const range = new vscode.NotebookRange(0, document.cellCount);
-    edit.replaceNotebookCells(document.uri, range, cellData);
-
     await vscode.workspace.applyEdit(edit);
+}
+
+function isDotNetNotebook(notebook: vscode.NotebookDocument): boolean {
+    if (isDotNetNotebookMetadata(notebook.metadata)) {
+        // metadata looked correct
+        return true;
+    }
+
+    if (notebook.uri.scheme === 'untitled' && notebook.cellCount === 1) {
+        // untitled with a single cell, check cell
+        const cell = notebook.cellAt(0);
+        if (isDotnetInteractiveLanguage(cell.document.languageId) && cell.document.getText() === '') {
+            // language was one of ours and cell was emtpy
+            return true;
+        }
+    }
+
+    // doesn't look like us
+    return false;
 }

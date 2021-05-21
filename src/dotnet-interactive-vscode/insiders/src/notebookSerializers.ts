@@ -11,7 +11,7 @@ import { defaultNotebookCellLanguage, getNotebookSpecificLanguage, getSimpleLang
 import { OutputChannelAdapter } from './common/vscode/OutputChannelAdapter';
 import { getEol, vsCodeCellOutputToContractCellOutput } from './common/vscode/vscodeUtilities';
 import { Eol } from './common/interfaces';
-import * as ipynbUtilities from './common/ipynbUtilities';
+import { DotNetNotebookContentProviderWrapper } from './notebookContentProviderWrapper';
 
 abstract class DotNetNotebookSerializer implements vscode.NotebookSerializer {
 
@@ -21,12 +21,19 @@ abstract class DotNetNotebookSerializer implements vscode.NotebookSerializer {
 
     constructor(
         notebookType: string,
+        registerAsSerializer: boolean,
         private readonly clientMapper: ClientMapper,
         private readonly outputChannel: OutputChannelAdapter,
         private readonly extension: string,
     ) {
-        this.disposable = vscode.notebook.registerNotebookSerializer(notebookType, this);
         this.eol = getEol();
+        if (registerAsSerializer) {
+            this.disposable = vscode.notebook.registerNotebookSerializer(notebookType, this);
+        } else {
+            // temporarly workaround for https://github.com/microsoft/vscode/issues/121974
+            const contentProviderWrapper = new DotNetNotebookContentProviderWrapper(this, this.outputChannel);
+            this.disposable = vscode.notebook.registerNotebookContentProvider(notebookType, contentProviderWrapper);
+        }
     }
 
     dispose(): void {
@@ -50,24 +57,6 @@ abstract class DotNetNotebookSerializer implements vscode.NotebookSerializer {
                 contents: '',
                 outputs: [],
             });
-        }
-
-        // peek at kernelspec to see if it's possibly not us
-        if (this.extension === '.ipynb') {
-            try {
-                const notebookObject = JSON.parse(content.toString());
-                ipynbUtilities.validateNotebookShape(
-                    notebookObject,
-                    (isError, message) => {
-                        if (isError) {
-                            vscode.window.showErrorMessage(message);
-                        } else {
-                            vscode.window.showWarningMessage(message);
-                        }
-                    });
-            } catch (e) {
-                // if it didn't parse as JSON then we don't care
-            }
         }
 
         const notebookData: vscode.NotebookData = {
@@ -98,21 +87,15 @@ abstract class DotNetNotebookSerializer implements vscode.NotebookSerializer {
 function toNotebookCell(cell: vscode.NotebookCellData): contracts.NotebookCell {
     const outputs = cell.outputs || [];
     return {
-        language: getSimpleLanguage(cell.language),
-        contents: cell.source,
+        language: getSimpleLanguage(cell.languageId),
+        contents: cell.value,
         outputs: outputs.map(vsCodeCellOutputToContractCellOutput)
     };
 }
 
 export class DotNetDibNotebookSerializer extends DotNetNotebookSerializer {
     constructor(clientMapper: ClientMapper, outputChannel: OutputChannelAdapter) {
-        super('dotnet-interactive', clientMapper, outputChannel, '.dib');
-    }
-}
-
-export class DotNetIpynbNotebookSerializer extends DotNetNotebookSerializer {
-    constructor(clientMapper: ClientMapper, outputChannel: OutputChannelAdapter) {
-        super('dotnet-interactive-jupyter', clientMapper, outputChannel, '.ipynb');
+        super('dotnet-interactive', false, clientMapper, outputChannel, '.dib');
     }
 }
 

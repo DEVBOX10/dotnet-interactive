@@ -22,7 +22,7 @@ namespace Microsoft.DotNet.Interactive
     {
         internal const string DefaultKernelName = "value";
 
-        private readonly ConcurrentDictionary<string, object> _values = new ConcurrentDictionary<string, object>();
+        private readonly ConcurrentDictionary<string, object> _values = new();
 
         public KeyValueStoreKernel() : base(DefaultKernelName)
         {
@@ -92,7 +92,7 @@ namespace Microsoft.DotNet.Interactive
 
             if (options.MimeType is { } mimeType)
             {
-                context.Display(value, mimeType);
+                context.DisplayAs(value, mimeType);
             }
         }
 

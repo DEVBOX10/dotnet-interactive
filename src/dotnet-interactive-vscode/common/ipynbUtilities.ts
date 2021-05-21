@@ -3,7 +3,6 @@
 
 import * as path from 'path';
 import { getNotebookSpecificLanguage, isDotnetInteractiveLanguage, notebookCellLanguages } from "./interactiveNotebook";
-import { isDotnetKernel } from './utilities';
 
 // the shape of this is meant to match the cell metadata from VS Code
 interface CellMetadata {
@@ -57,7 +56,7 @@ export function getLanguageInfoMetadata(metadata: any): LanguageInfoMetadata {
         metadata.custom.metadata &&
         metadata.custom.metadata.language_info &&
         isLanguageInfoMetadata(metadata.custom.metadata.language_info)) {
-        languageMetadata = metadata.custom.metadata.language_info;
+        languageMetadata = { ...metadata.custom.metadata.language_info };
     }
 
     languageMetadata.name = mapIpynbLanguageName(languageMetadata.name);
@@ -119,20 +118,34 @@ export const requiredKernelspecData: KernelspecMetadata = {
     name: '.net-csharp',
 };
 
+export const requiredLanguageInfoData = {
+    file_extension: '.cs',
+    mimetype: 'text/x-csharp',
+    name: 'C#',
+    pygments_lexer: 'csharp',
+    version: '9.0',
+};
+
 export function withDotNetKernelMetadata(metadata: { [key: string]: any } | undefined): any | undefined {
-    // clone the existing metadata
-    let result: { [key: string]: any } = {};
-    if (metadata) {
-        for (const key in metadata) {
-            result[key] = metadata[key];
-        }
+    if (isDotnetKernel(metadata?.custom?.metadata?.kernelspec?.name)) {
+        return metadata; // don't change anything
     }
 
-    result.custom ||= {};
-    result.custom.metadata ||= {};
+    const result = {
+        ...metadata,
+        custom: {
+            ...metadata?.custom,
+            metadata: {
+                ...metadata?.custom?.metadata,
+                kernelspec: {
+                    ...metadata?.custom?.metadata?.kernelspec,
+                    ...requiredKernelspecData,
+                },
+                language_info: requiredLanguageInfoData,
+            },
+        }
+    };
 
-    // always set kernelspec data so that this notebook can be opened in Jupyter Lab
-    result.custom.metadata.kernelspec = { ...result.custom.metadata.kernelspec, ...requiredKernelspecData };
     return result;
 }
 
@@ -140,24 +153,13 @@ export function isIpynbFile(filePath: string): boolean {
     return path.extname(filePath).toLowerCase() === '.ipynb';
 }
 
-export function validateNotebookShape(notebookData: any, notificationCallback: (isError: boolean, message: string) => void) {
-    const kernelspecName = notebookData?.metadata?.kernelspec?.name;
-    if (isDotnetKernel(kernelspecName)) {
-        // looks like us, check the cell languages
-        let hasLanguages = true;
-        for (const cell of notebookData?.cells) {
-            const cellLanguage = cell?.metadata?.dotnet_interactive?.language;
-            if (cell?.cell_type === 'code' && typeof cellLanguage !== 'string') {
-                hasLanguages = false;
-                break;
-            }
-        }
+function isDotnetKernel(kernelspecName: any): boolean {
+    return typeof kernelspecName === 'string' && kernelspecName.toLowerCase().startsWith('.net-');
+}
 
-        if (!hasLanguages) {
-            notificationCallback(false, `.NET Interactive could not determine the language of the notebook cells.  Please ensure each cell's language is correctly set.`);
-        }
-    } else {
-        // might be something else
-        notificationCallback(true, `Unexpected kernelspec name '${kernelspecName}' in notebook.  Right-click the notebook file and select 'Open With...' to select the correct editor.`);
-    }
+export function isDotNetNotebookMetadata(notebookMetadata: any): boolean {
+    const kernelName = notebookMetadata?.custom?.metadata?.kernelspec?.name;
+    const languageInfo = notebookMetadata?.custom?.metadata?.language_info?.name;
+    const isDotnetLanguageInfo = typeof languageInfo === 'string' && isDotnetInteractiveLanguage(languageInfo);
+    return isDotnetKernel(kernelName) || isDotnetLanguageInfo;
 }
