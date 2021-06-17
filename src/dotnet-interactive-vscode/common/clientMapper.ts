@@ -2,24 +2,34 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 import { KernelTransport } from './interfaces/contracts';
-import { InteractiveClient } from "./interactiveClient";
+import { ErrorOutputCreator, InteractiveClient } from "./interactiveClient";
 import { ReportChannel, Uri } from "./interfaces/vscode-like";
+
+export interface ClientMapperConfiguration {
+    kernelTransportCreator: (notebookUri: Uri) => Promise<KernelTransport>,
+    createErrorOutput: ErrorOutputCreator,
+    diagnosticChannel?: ReportChannel,
+}
 
 export class ClientMapper {
     private clientMap: Map<string, Promise<InteractiveClient>> = new Map();
     private clientCreationCallbackMap: Map<string, (client: InteractiveClient) => Promise<void>> = new Map();
 
-    constructor(readonly kernelTransportCreator: (notebookPath: string) => Promise<KernelTransport>, readonly diagnosticChannel?: ReportChannel) {
+    constructor(readonly config: ClientMapperConfiguration) {
     }
 
     private writeDiagnosticMessage(message: string) {
-        if (this.diagnosticChannel) {
-            this.diagnosticChannel.appendLine(message);
+        if (this.config.diagnosticChannel) {
+            this.config.diagnosticChannel.appendLine(message);
         }
     }
 
     static keyFromUri(uri: Uri): string {
-        return uri.fsPath;
+        const key = uri.toString();
+        if (key.startsWith("vscode-notebook-cell")) {
+            throw new Error("vscode-notebook-cell is not supported");
+        }
+        return key;
     }
 
     tryGetClient(uri: Uri): Promise<InteractiveClient | undefined> {
@@ -41,8 +51,12 @@ export class ClientMapper {
             this.writeDiagnosticMessage(`creating client for '${key}'`);
             clientPromise = new Promise<InteractiveClient>(async (resolve, reject) => {
                 try {
-                    const transport = await this.kernelTransportCreator(uri.fsPath);
-                    const client = new InteractiveClient(transport);
+                    const transport = await this.config.kernelTransportCreator(uri);
+                    const config = {
+                        transport,
+                        createErrorOutput: this.config.createErrorOutput,
+                    };
+                    const client = new InteractiveClient(config);
 
                     let onCreate = this.clientCreationCallbackMap.get(key);
                     if (onCreate) {
@@ -98,6 +112,7 @@ export class ClientMapper {
     }
 
     isDotNetClient(uri: Uri): boolean {
-        return this.clientMap.has(uri.fsPath);
+        const key = ClientMapper.keyFromUri(uri);
+        return this.clientMap.has(key);
     }
 }

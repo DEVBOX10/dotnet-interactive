@@ -6,9 +6,9 @@ import * as vscode from 'vscode';
 import { Eol, WindowsEol, NonWindowsEol } from "../interfaces";
 import { Diagnostic, DiagnosticSeverity, LinePosition, LinePositionSpan, NotebookCell, NotebookCellDisplayOutput, NotebookCellErrorOutput, NotebookCellOutput, NotebookDocument } from '../interfaces/contracts';
 
-import * as versionSpecificFunctions from '../../versionSpecificFunctions';
 import { getSimpleLanguage } from '../interactiveNotebook';
 import * as vscodeLike from '../interfaces/vscode-like';
+import * as versionSpecificFunctions from '../../versionSpecificFunctions';
 
 export function isInsidersBuild(): boolean {
     return vscode.version.indexOf('-insider') >= 0;
@@ -72,12 +72,9 @@ export function getEol(): Eol {
     }
 }
 
-export function isUnsavedNotebook(uri: vscode.Uri): boolean {
-    return uri.scheme === 'untitled';
-}
 export function toNotebookDocument(document: vscode.NotebookDocument): NotebookDocument {
     return {
-        cells: versionSpecificFunctions.getCells(document).map(toNotebookCell)
+        cells: document.getCells().map(toNotebookCell)
     };
 }
 
@@ -92,21 +89,22 @@ export function toNotebookCell(cell: vscode.NotebookCell): NotebookCell {
 }
 
 export function vsCodeCellOutputToContractCellOutput(output: vscode.NotebookCellOutput): NotebookCellOutput {
-    const errorOutputItems = output.outputs.filter(oi => oi.mime === vscodeLike.ErrorOutputMimeType || oi.metadata?.mimeType === vscodeLike.ErrorOutputMimeType);
+    const outputItems = output.items;
+    const errorOutputItems = outputItems.filter(oi => oi.mime === vscodeLike.ErrorOutputMimeType);
     if (errorOutputItems.length > 0) {
         // any error-like output takes precedence
         const errorOutputItem = errorOutputItems[0];
         const error: NotebookCellErrorOutput = {
             errorName: 'Error',
-            errorValue: '' + errorOutputItem.value,
+            errorValue: '' + errorOutputItem.data,
             stackTrace: [],
         };
         return error;
     } else {
         //otherwise build the mime=>value dictionary
         const data: { [key: string]: any } = {};
-        for (const outputItem of output.outputs) {
-            data[outputItem.mime] = outputItem.value;
+        for (const outputItem of outputItems) {
+            data[outputItem.mime] = outputItem.data;
         }
 
         const cellOutput: NotebookCellDisplayOutput = {

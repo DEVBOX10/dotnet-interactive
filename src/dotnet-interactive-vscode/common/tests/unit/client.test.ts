@@ -10,15 +10,16 @@ import { ClientMapper } from '../../clientMapper';
 import { TestKernelTransport } from './testKernelTransport';
 import { CallbackTestKernelTransport } from './callbackTestKernelTransport';
 import { CodeSubmissionReceivedType, CompleteCodeSubmissionReceivedType, CommandSucceededType, DisplayedValueProducedType, ReturnValueProducedType, DisplayedValueUpdatedType, CommandFailedType } from '../../interfaces/contracts';
-import { debounce, wait } from '../../utilities';
+import { createUri, debounce, wait } from '../../utilities';
 import * as vscodeLike from '../../interfaces/vscode-like';
+import { createKernelTransportConfig, decodeNotebookCellOutputs } from './utilities';
 
 describe('InteractiveClient tests', () => {
 
     it('command execution returns deferred events', async () => {
-        let token = 'test-token';
-        let code = '1 + 1';
-        let clientMapper = new ClientMapper(async (notebookPath) => new TestKernelTransport({
+        const token = 'test-token';
+        const code = '1 + 1';
+        const config = createKernelTransportConfig(async (notebookPath) => new TestKernelTransport({
             'SubmitCode': [
                 {
                     // deferred event; unassociated with the original submission; has its own token
@@ -70,25 +71,27 @@ describe('InteractiveClient tests', () => {
                 }
             ]
         }));
-        let client = await clientMapper.getOrAddClient({ fsPath: 'test/path' });
+        const clientMapper = new ClientMapper(config);
+        const client = await clientMapper.getOrAddClient(createUri('test/path'));
         let result: Array<vscodeLike.NotebookCellOutput> = [];
         await client.execute(code, 'csharp', outputs => result = outputs, _ => { }, { token });
-        expect(result).to.deep.equal([
+        const decodedResults = decodeNotebookCellOutputs(result);
+        expect(decodedResults).to.deep.equal([
             {
                 id: '1',
-                outputs: [
+                items: [
                     {
                         mime: 'text/plain',
-                        value: 'deferred output',
+                        decodedData: 'deferred output',
                     }
                 ]
             },
             {
                 id: '2',
-                outputs: [
+                items: [
                     {
                         mime: 'text/html',
-                        value: '2',
+                        decodedData: '2',
                     }
                 ]
             }
@@ -96,9 +99,9 @@ describe('InteractiveClient tests', () => {
     });
 
     it('deferred events do not interfere with display update events', async () => {
-        let token = 'test-token';
-        let code = '1 + 1';
-        let clientMapper = new ClientMapper(async (notebookPath) => new TestKernelTransport({
+        const token = 'test-token';
+        const code = '1 + 1';
+        const config = createKernelTransportConfig(async (notebookPath) => new TestKernelTransport({
             'SubmitCode': [
                 {
                     // deferred event; unassociated with the original submission; has its own token
@@ -150,25 +153,27 @@ describe('InteractiveClient tests', () => {
                 }
             ]
         }));
-        let client = await clientMapper.getOrAddClient({ fsPath: 'test/path' });
+        const clientMapper = new ClientMapper(config);
+        const client = await clientMapper.getOrAddClient(createUri('test/path'));
         let result: Array<vscodeLike.NotebookCellOutput> = [];
         await client.execute(code, 'csharp', outputs => result = outputs, _ => { }, { token });
-        expect(result).to.deep.equal([
+        const decodedResults = decodeNotebookCellOutputs(result);
+        expect(decodedResults).to.deep.equal([
             {
                 id: '1',
-                outputs: [
+                items: [
                     {
                         mime: 'text/plain',
-                        value: 'deferred output',
+                        decodedData: 'deferred output',
                     }
                 ]
             },
             {
                 id: '3',
-                outputs: [
+                items: [
                     {
                         mime: 'text/html',
-                        value: '2',
+                        decodedData: '2',
                     }
                 ]
             }
@@ -176,9 +181,9 @@ describe('InteractiveClient tests', () => {
     });
 
     it('interleaved deferred events do not interfere with display update events', async () => {
-        let token = 'test-token';
-        let code = '1 + 1';
-        let clientMapper = new ClientMapper(async (notebookPath) => new TestKernelTransport({
+        const token = 'test-token';
+        const code = '1 + 1';
+        const config = createKernelTransportConfig(async (notebookPath) => new TestKernelTransport({
             'SubmitCode': [
                 {
                     // deferred event; unassociated with the original submission; has its own token
@@ -245,34 +250,36 @@ describe('InteractiveClient tests', () => {
                 }
             ]
         }));
-        let client = await clientMapper.getOrAddClient({ fsPath: 'test/path' });
+        const clientMapper = new ClientMapper(config);
+        const client = await clientMapper.getOrAddClient(createUri('test/path'));
         let result: Array<vscodeLike.NotebookCellOutput> = [];
         await client.execute(code, 'csharp', outputs => result = outputs, _ => { }, { token });
-        expect(result).to.deep.equal([
+        const decodedResults = decodeNotebookCellOutputs(result);
+        expect(decodedResults).to.deep.equal([
             {
                 id: '1',
-                outputs: [
+                items: [
                     {
                         mime: 'text/plain',
-                        value: 'deferred output 1',
+                        decodedData: 'deferred output 1',
                     }
                 ]
             },
             {
                 id: '4',
-                outputs: [
+                items: [
                     {
                         mime: 'text/html',
-                        value: '2',
+                        decodedData: '2',
                     }
                 ]
             },
             {
                 id: '3',
-                outputs: [
+                items: [
                     {
                         mime: 'text/plain',
-                        value: 'deferred output 2',
+                        decodedData: 'deferred output 2',
                     }
                 ]
             }
@@ -280,8 +287,8 @@ describe('InteractiveClient tests', () => {
     });
 
     it('display update events from separate submissions trigger the correct observer', async () => {
-        let code = '1 + 1';
-        let clientMapper = new ClientMapper(async (notebookPath) => new TestKernelTransport({
+        const code = '1 + 1';
+        const config = createKernelTransportConfig(async (notebookPath) => new TestKernelTransport({
             'SubmitCode#1': [
                 {
                     eventType: DisplayedValueProducedType,
@@ -325,18 +332,20 @@ describe('InteractiveClient tests', () => {
                 }
             ]
         }));
-        let client = await clientMapper.getOrAddClient({ fsPath: 'test/path' });
+        const clientMapper = new ClientMapper(config);
+        const client = await clientMapper.getOrAddClient(createUri('test/path'));
 
         // execute first command
         let result1: Array<vscodeLike.NotebookCellOutput> = [];
         await client.execute(code, 'csharp', outputs => result1 = outputs, _ => { }, { token: 'token 1' });
-        expect(result1).to.deep.equal([
+        let decodedResults1 = decodeNotebookCellOutputs(result1);
+        expect(decodedResults1).to.deep.equal([
             {
                 id: '1',
-                outputs: [
+                items: [
                     {
                         mime: 'text/html',
-                        value: '1',
+                        decodedData: '1',
                     }
                 ]
             }
@@ -348,13 +357,14 @@ describe('InteractiveClient tests', () => {
         expect(result2).to.deep.equal([]);
 
         // ensure first result array was updated
-        expect(result1).to.deep.equal([
+        decodedResults1 = decodeNotebookCellOutputs(result1);
+        expect(decodedResults1).to.deep.equal([
             {
                 id: '2',
-                outputs: [
+                items: [
                     {
                         mime: 'text/html',
-                        value: '2',
+                        decodedData: '2',
                     }
                 ]
             }
@@ -363,7 +373,7 @@ describe('InteractiveClient tests', () => {
 
     it('CommandFailedEvent rejects the execution promise', (done) => {
         const token = 'token';
-        const clientMapper = new ClientMapper(async (_notebookPath) => new TestKernelTransport({
+        const config = createKernelTransportConfig(async (notebookPath) => new TestKernelTransport({
             'SubmitCode': [
                 {
                     eventType: CommandFailedType,
@@ -372,7 +382,8 @@ describe('InteractiveClient tests', () => {
                 }
             ]
         }));
-        clientMapper.getOrAddClient({ fsPath: 'test/path' }).then(client => {
+        const clientMapper = new ClientMapper(config);
+        clientMapper.getOrAddClient(createUri('test/path')).then(client => {
             client.execute('bad-code-that-will-fail', 'csharp', _ => { }, _ => { }, { token }).then(result => {
                 done(`expected execution to fail promise, but passed with: ${result}`);
             }).catch(_err => {
@@ -383,7 +394,7 @@ describe('InteractiveClient tests', () => {
 
     it('clientMapper can reassociate clients', (done) => {
         let transportCreated = false;
-        const clientMapper = new ClientMapper(async (_notebookPath) => {
+        const config = createKernelTransportConfig(async (_notebookPath) => {
             if (transportCreated) {
                 done('transport already created; this function should not have been called again');
             }
@@ -391,9 +402,10 @@ describe('InteractiveClient tests', () => {
             transportCreated = true;
             return new TestKernelTransport({});
         });
-        clientMapper.getOrAddClient({ fsPath: 'test-path.dib' }).then(_client => {
-            clientMapper.reassociateClient({ fsPath: 'test-path.dib' }, { fsPath: 'updated-path.dib' });
-            clientMapper.getOrAddClient({ fsPath: 'updated-path.dib' }).then(_reassociatedClient => {
+        const clientMapper = new ClientMapper(config);
+        clientMapper.getOrAddClient(createUri('test-path.dib')).then(_client => {
+            clientMapper.reassociateClient(createUri('test-path.dib'), createUri('updated-path.dib'));
+            clientMapper.getOrAddClient(createUri('updated-path.dib')).then(_reassociatedClient => {
                 done();
             });
         });
@@ -401,7 +413,7 @@ describe('InteractiveClient tests', () => {
 
     it('clientMapper reassociate does nothing for an untracked file', async () => {
         let transportCreated = false;
-        const clientMapper = new ClientMapper(async (_notebookPath) => {
+        const config = createKernelTransportConfig(async (_notebookPath) => {
             if (transportCreated) {
                 throw new Error('transport already created; this function should not have been called again');
             }
@@ -409,17 +421,17 @@ describe('InteractiveClient tests', () => {
             transportCreated = true;
             return new TestKernelTransport({});
         });
-        await clientMapper.getOrAddClient({ fsPath: 'test-path.dib' });
-        clientMapper.reassociateClient({ fsPath: 'not-a-tracked-file.txt' }, { fsPath: 'also-not-a-tracked-file.txt' });
-        const _existingClient = await clientMapper.getOrAddClient({ fsPath: 'test-path.dib' });
-        expect(clientMapper.isDotNetClient({ fsPath: 'not-a-tracked-file.txt' })).to.be.false;
-        expect(clientMapper.isDotNetClient({ fsPath: 'also-not-a-tracked-file.txt' })).to.be.false;
+        const clientMapper = new ClientMapper(config);
+        await clientMapper.getOrAddClient(createUri('test-path.dib'));
+        clientMapper.reassociateClient(createUri('not-a-tracked-file.txt'), createUri('also-not-a-tracked-file.txt'));
+        const _existingClient = await clientMapper.getOrAddClient(createUri('test-path.dib'));
+        expect(clientMapper.isDotNetClient(createUri('not-a-tracked-file.txt'))).to.be.false;
+        expect(clientMapper.isDotNetClient(createUri('also-not-a-tracked-file.txt'))).to.be.false;
     });
 
     it('execution prevents diagnostics request forwarding', async () => {
-        let token = 'test-token';
-
-        let clientMapper = new ClientMapper(async (notebookPath) => new TestKernelTransport({
+        const token = 'test-token';
+        const config = createKernelTransportConfig(async (notebookPath) => new TestKernelTransport({
             'SubmitCode': [
 
                 {
@@ -429,13 +441,13 @@ describe('InteractiveClient tests', () => {
                 }
             ]
         }));
-
+        const clientMapper = new ClientMapper(config);
         let diagnosticsCallbackFired = false;
         debounce("id0", 500, () => {
             diagnosticsCallbackFired = true;
         });
 
-        const client = await clientMapper.getOrAddClient({ fsPath: 'test-path.dib' });
+        const client = await clientMapper.getOrAddClient(createUri('test-path.dib'));
         await client.execute("1+1", "csharp", (_outputs) => { }, (_diagnostics) => { }, { token: token, id: "id0" });
         await wait(1000);
         expect(diagnosticsCallbackFired).to.be.false;
@@ -443,32 +455,38 @@ describe('InteractiveClient tests', () => {
 
     it('exception in submit code properly rejects all promises', done => {
         const token = 'test-token';
-        const clientMapper = new ClientMapper(async (_notebookPath) => new CallbackTestKernelTransport({
+        const config = createKernelTransportConfig(async (_notebookPath) => new CallbackTestKernelTransport({
             'SubmitCode': () => {
                 throw new Error('expected exception during submit');
             },
         }));
-        clientMapper.getOrAddClient({ fsPath: 'test-path.dib' }).then(client => {
+        const clientMapper = new ClientMapper(config);
+        clientMapper.getOrAddClient(createUri('test-path.dib')).then(client => {
             expect(client.execute("1+1", "csharp", _outputs => { }, _diagnostics => { }, { token, id: '' })).eventually.rejectedWith('expected exception during submit').notify(done);
         });
     });
 
     it('exception in submit code properly generates error outputs', done => {
         const token = 'test-token';
-        const clientMapper = new ClientMapper(async (_notebookPath) => new CallbackTestKernelTransport({
+        const config = createKernelTransportConfig(async (_notebookPath) => new CallbackTestKernelTransport({
             'SubmitCode': () => {
                 throw new Error('expected exception during submit');
             },
         }));
+        const clientMapper = new ClientMapper(config);
         let seenOutputs: Array<vscodeLike.NotebookCellOutput> = [];
-        clientMapper.getOrAddClient({ fsPath: 'test-path.dib' }).then(client => {
+        clientMapper.getOrAddClient(createUri('test-path.dib')).then(client => {
             expect(client.execute("1+1", "csharp", outputs => { seenOutputs = outputs; }, _diagnostics => { }, { token, id: '' })).eventually.rejected.then(() => {
                 try {
-                    expect(seenOutputs).to.deep.equal([{
+                    const decodedOutputs = decodeNotebookCellOutputs(seenOutputs);
+                    expect(decodedOutputs).to.deep.equal([{
                         id: '1',
-                        outputs: [{
+                        items: [{
                             mime: vscodeLike.ErrorOutputMimeType,
-                            value: 'Error: expected exception during submit',
+                            decodedData: {
+                                name: 'Error',
+                                message: 'expected exception during submit',
+                            },
                         }]
                     }]);
                     done();
@@ -480,10 +498,11 @@ describe('InteractiveClient tests', () => {
     });
 
     it('exception creating kernel transport gracefully fails', done => {
-        const clientMapper = new ClientMapper(async _notebookPath => {
+        const config = createKernelTransportConfig(async (_notebookPath) => {
             throw new Error('simulated error during transport creation');
         });
-        expect(clientMapper.getOrAddClient({ fsPath: 'fake-notebook' })).eventually.rejectedWith('simulated error during transport creation').notify(done);
+        const clientMapper = new ClientMapper(config);
+        expect(clientMapper.getOrAddClient(createUri('fake-notebook'))).eventually.rejectedWith('simulated error during transport creation').notify(done);
     });
 
 });

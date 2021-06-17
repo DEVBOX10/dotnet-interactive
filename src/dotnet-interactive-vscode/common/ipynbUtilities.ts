@@ -32,6 +32,15 @@ export function getDotNetMetadata(metadata: any): DotNetCellMetadata {
     };
 }
 
+export function withDotNetCellMetadata(metadata: { [key: string]: any, } | undefined, cellLanguage: string): { [key: string]: any, } {
+    const newMetadata = { ...metadata };
+    newMetadata.custom = newMetadata.custom || {};
+    newMetadata.custom.metadata = newMetadata.custom.metadata || {};
+    newMetadata.custom.metadata.dotnet_interactive = newMetadata.custom.metadata.dotnet_interactive || {};
+    newMetadata.custom.metadata.dotnet_interactive.language = cellLanguage;
+    return newMetadata;
+}
+
 // the shape of this is meant to match the document metadata from VS Code
 export interface DocumentMetadata {
     custom?: { [key: string]: any } | undefined,
@@ -63,7 +72,7 @@ export function getLanguageInfoMetadata(metadata: any): LanguageInfoMetadata {
     return languageMetadata;
 }
 
-function mapIpynbLanguageName(name: string | undefined): string | undefined {
+export function mapIpynbLanguageName(name: string | undefined): string | undefined {
     if (name) {
         // The .NET Interactive Jupyter kernel serializes the language names as "C#", "F#", and "PowerShell"; these
         // need to be normalized to .NET Interactive kernel language names.

@@ -2,10 +2,16 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.DotNet.Interactive.Commands;
+using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.CSharp;
+using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.FSharp;
 using Microsoft.DotNet.Interactive.Jupyter;
 using Microsoft.DotNet.Interactive.Parsing;
@@ -318,16 +324,105 @@ let x = 123
                 .AllSatisfy(child => rootSpan.Contains(child.Span).Should().BeTrue());
         }
 
-        private static SubmissionParser CreateSubmissionParser(
-            string defaultLanguage = "csharp")
+        [Fact]
+        public void Submissions_targeting_proxy_kernels_are_not_split_prior_to_sending()
         {
-            using var compositeKernel = new CompositeKernel();
 
-            compositeKernel.DefaultKernelName = defaultLanguage;
+            var proxyKernel = new ProxyKernel(
+                "proxyKernel", 
+                new NullKernelCommandAndEventReceiver(), 
+                new NullKernelCommandAndEventSender());
+
+            var parser = CreateSubmissionParser(additionalKernels:new Kernel[]{proxyKernel});
+            
+            var code = @"Console.WriteLine(""Hello from Proxy"");
+
+#!time
+var a = 12;
+
+#!time
+var b = 22;";
+
+            var submission = $@"#!{proxyKernel.Name}
+{code}";
+
+            var tree = parser.Parse(submission);
+
+            var nodes = tree.GetRoot()
+                .ChildNodes.ToList();
+
+            nodes
+                .First()
+                .As<ProxyKernelNameDirectiveNode>()
+                .Should()
+                .NotBeNull();
+
+            nodes
+                .Should()
+                .ContainSingle<LanguageNode>(n => n.GetType() == typeof(LanguageNode))
+                .Which
+                .Text
+                .Should()
+                .Be(code);
+        }
+
+        [Fact]
+        public void When_targeting_a_local_kernel_after_targeting_a_proxy_kernel_splitting_resumes()
+        {
+
+            var proxyKernel = new ProxyKernel(
+                "proxyKernel",
+                new NullKernelCommandAndEventReceiver(),
+                new NullKernelCommandAndEventSender());
+
+            var parser = CreateSubmissionParser(additionalKernels: new Kernel[] { proxyKernel });
+
+            var proxyCode = @"Console.WriteLine(""Hello from Proxy"");
+
+#!time
+var a = 12;
+
+#!time
+var b = 22;";
+
+            var submission = $@"#!{proxyKernel.Name}
+{proxyCode}
+#!csharp
+var d = 12;
+#!time
+Console.WriteLine(d);
+";
+
+            var tree = parser.Parse(submission);
+
+            var nodes = tree.GetRoot()
+                .ChildNodes.ToList();
+
+            var codeNodes = nodes.Where(n => n.GetType() == typeof(LanguageNode)).Select(n => n.Text). ToList();
+
+
+            codeNodes.Should().BeEquivalentTo(
+                $@"{proxyCode}
+", 
+                @"var d = 12;
+", 
+                @"Console.WriteLine(d);
+");
+
+            nodes.Should().ContainSingle<DirectiveNode>( n => n.Text.StartsWith("#!time"));
+
+        }
+
+        private static SubmissionParser CreateSubmissionParser(
+            string defaultLanguage = "csharp", IEnumerable<Kernel> additionalKernels = null)
+        {
+            using var compositeKernel = new CompositeKernel {DefaultKernelName = defaultLanguage};
+
 
             compositeKernel.Add(
                 new CSharpKernel()
-                    .UseNugetDirective(),
+                    .UseNugetDirective()
+                    .UseWho(),
                 new[] { "c#", "C#" });
 
             compositeKernel.Add(
@@ -339,9 +434,38 @@ let x = 123
                 new PowerShellKernel(),
                 new[] { "powershell" });
 
+            if (additionalKernels is not null)
+            {
+                foreach (var additionalKernel in additionalKernels)
+                {
+                    compositeKernel.Add(additionalKernel);
+                }
+            }
+
             compositeKernel.UseDefaultMagicCommands();
 
             return compositeKernel.SubmissionParser;
+        }
+
+        private class  NullKernelCommandAndEventReceiver: IKernelCommandAndEventReceiver
+        {
+            public IAsyncEnumerable<CommandOrEvent> CommandsOrEventsAsync(CancellationToken cancellationToken)
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+        private class NullKernelCommandAndEventSender : IKernelCommandAndEventSender
+        {
+            public Task SendAsync(KernelCommand kernelCommand, CancellationToken cancellationToken)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task SendAsync(KernelEvent kernelEvent, CancellationToken cancellationToken)
+            {
+                throw new NotImplementedException();
+            }
         }
     }
 }

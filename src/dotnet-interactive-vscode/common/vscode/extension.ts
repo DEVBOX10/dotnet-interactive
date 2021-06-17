@@ -1,27 +1,34 @@
 // Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+import * as contracts from '../interfaces/contracts';
 import * as fs from 'fs';
-import * as vscode from 'vscode';
+import * as os from 'os';
 import * as path from 'path';
+import * as vscode from 'vscode';
+import * as vscodeLike from '../interfaces/vscode-like';
 import { ClientMapper } from '../clientMapper';
 
 import { StdioKernelTransport } from '../stdioKernelTransport';
 import { registerLanguageProviders } from './languageProvider';
 import { registerAcquisitionCommands, registerKernelCommands, registerFileCommands } from './commands';
 
-import { getSimpleLanguage, isDotnetInteractiveLanguage, isJupyterNotebookViewType } from '../interactiveNotebook';
+import { getSimpleLanguage, isDotnetInteractiveLanguage, isJupyterNotebookViewType, jupyterViewType } from '../interactiveNotebook';
 import { InteractiveLaunchOptions, InstallInteractiveArgs } from '../interfaces';
 
-import { executeSafe, isDotNetUpToDate, processArguments } from '../utilities';
+import { createOutput, executeSafe, getWorkingDirectoryForNotebook, isDotNetUpToDate, processArguments } from '../utilities';
 import { OutputChannelAdapter } from './OutputChannelAdapter';
 
+import * as notebookControllers from '../../notebookControllers';
+import * as notebookSerializers from '../../notebookSerializers';
 import * as versionSpecificFunctions from '../../versionSpecificFunctions';
+import { ErrorOutputCreator } from '../../common/interactiveClient';
 
-import { isInsidersBuild } from './vscodeUtilities';
-import { getDotNetMetadata } from '../ipynbUtilities';
+import { isInsidersBuild, isStableBuild } from './vscodeUtilities';
+import { getDotNetMetadata, withDotNetCellMetadata } from '../ipynbUtilities';
+import fetch from 'node-fetch';
 
-export const KernelId = 'dotnet-interactive';
+export const KernelIdForJupyter = 'dotnet-interactive-for-jupyter';
 
 export class CachedDotNetPathManager {
     private dotNetPath: string = 'dotnet'; // default to global tool if possible
@@ -59,38 +66,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // this must happen early, because some following functions use the acquisition command
     registerAcquisitionCommands(context, diagnosticsChannel);
 
-    vscode.window.registerUriHandler({
-        handleUri(uri: vscode.Uri): vscode.ProviderResult<void> {
-            const params = new URLSearchParams(uri.query);
-            switch (uri.path) {
-                case '/newNotebook':
-                    // Examples:
-                    //   vscode://ms-dotnettools.dotnet-interactive-vscode/newNotebook?as=dib
-                    //   vscode://ms-dotnettools.dotnet-interactive-vscode/newNotebook?as=ipynb
-                    const asType = params.get('as');
-                    vscode.commands.executeCommand('dotnet-interactive.acquire').then(() => {
-                        const commandName = asType === 'ipynb'
-                            ? 'dotnet-interactive.newNotebookIpynb'
-                            : 'dotnet-interactive.newNotebookDib';
-                        vscode.commands.executeCommand(commandName).then(() => { });
-                    });
-                    break;
-                case '/openNotebook':
-                    // Example
-                    //   vscode://ms-dotnettools.dotnet-interactive-vscode/openNotebook?path=C%3A%5Cpath%5Cto%5Cnotebook.dib
-                    const path = params.get('path');
-                    if (path) {
-                        vscode.commands.executeCommand('dotnet-interactive.acquire').then(() => {
-                            vscode.commands.executeCommand('dotnet-interactive.openNotebook', vscode.Uri.file(path)).then(() => { });
-                        });
-                    }
-                    break;
-            }
-        }
-    });
-
-    // register with VS Code
-    const clientMapper = new ClientMapper(async (notebookPath) => {
+    async function kernelTransportCreator(notebookUri: vscodeLike.Uri): Promise<contracts.KernelTransport> {
         if (!await checkForDotNetSdk(minDotNetSdkVersion!)) {
             const message = 'Unable to find appropriate .NET SDK.';
             vscode.window.showErrorMessage(message);
@@ -110,27 +86,91 @@ export async function activate(context: vscode.ExtensionContext) {
             workingDirectory: config.get<string>('kernelTransportWorkingDirectory')!
         };
 
-        // ensure a reasonable working directory is selected
-        const fallbackWorkingDirectory = (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
-            ? vscode.workspace.workspaceFolders[0].uri.fsPath
-            : '.';
+        // try to use $HOME/Downloads as a fallback for remote notebooks, but use the home directory if all else fails
+        const homeDir = os.homedir();
+        const downloadsDir = path.join(homeDir, 'Downloads');
+        const fallbackWorkingDirectory = fs.existsSync(downloadsDir) ? downloadsDir : homeDir;
 
-        const processStart = processArguments(argsTemplate, notebookPath, fallbackWorkingDirectory, DotNetPathManager.getDotNetPath(), launchOptions!.workingDirectory);
+        const workspaceFolderUris = vscode.workspace.workspaceFolders?.map(folder => folder.uri) || [];
+        const workingDirectory = getWorkingDirectoryForNotebook(notebookUri, workspaceFolderUris, fallbackWorkingDirectory);
+        const processStart = processArguments(argsTemplate, workingDirectory, DotNetPathManager.getDotNetPath(), launchOptions!.workingDirectory);
         let notification = {
             displayError: async (message: string) => { await vscode.window.showErrorMessage(message, { modal: false }); },
             displayInfo: async (message: string) => { await vscode.window.showInformationMessage(message, { modal: false }); },
         };
-        const transport = new StdioKernelTransport(notebookPath, processStart, diagnosticsChannel, vscode.Uri.parse, notification, (pid, code, signal) => {
-            clientMapper.closeClient({ fsPath: notebookPath }, false);
+        const transport = new StdioKernelTransport(notebookUri.toString(), processStart, diagnosticsChannel, vscode.Uri.parse, notification, (pid, code, signal) => {
+            clientMapper.closeClient(notebookUri, false);
         });
+
         await transport.waitForReady();
 
-        let externalUri = await vscode.env.asExternalUri(vscode.Uri.parse(`http://localhost:${transport.httpPort}`));
-        //create tunnel for teh kernel transport
-        await transport.setExternalUri(externalUri);
+        let localUriString = `http://localhost:${transport.httpPort}`;
+        let externalUriString = localUriString;
+
+        try {
+            let tunnel = await vscode.workspace.openTunnel({ remoteAddress: { host: "localhost", port: <number>transport.httpPort } });
+            externalUriString = typeof tunnel.localAddress === 'string'
+                ? tunnel.localAddress
+                : `http://${tunnel.localAddress.host}:${tunnel.localAddress.port}`;
+        }
+        catch (_) {
+            const x = 12;
+        }
+
+        let localUri = <vscodeLike.Uri>vscode.Uri.parse(localUriString);
+        let externalUri = <vscodeLike.Uri>vscode.Uri.parse(externalUriString);
+        try {
+            await transport.setExternalUri({ externalUri, localUri });
+        }
+        catch (e) {
+            vscode.window.showErrorMessage(`Error configuring http connection with .NET Interactive on ${externalUri.toString()} : ${e.message}`);
+        }
 
         return transport;
-    }, diagnosticsChannel);
+    }
+
+    // register with VS Code
+    const clientMapperConfig = {
+        kernelTransportCreator,
+        createErrorOutput,
+        diagnosticsChannel,
+    };
+    const clientMapper = new ClientMapper(clientMapperConfig);
+
+    vscode.window.registerUriHandler({
+        handleUri(uri: vscode.Uri): vscode.ProviderResult<void> {
+            const params = new URLSearchParams(uri.query);
+            switch (uri.path) {
+                case '/newNotebook':
+                    // Examples:
+                    //   vscode://ms-dotnettools.dotnet-interactive-vscode/newNotebook?as=dib
+                    //   vscode://ms-dotnettools.dotnet-interactive-vscode/newNotebook?as=ipynb
+                    const asType = params.get('as');
+                    vscode.commands.executeCommand('dotnet-interactive.acquire').then(() => {
+                        const commandName = asType === 'ipynb'
+                            ? 'dotnet-interactive.newNotebookIpynb'
+                            : 'dotnet-interactive.newNotebookDib';
+                        vscode.commands.executeCommand(commandName).then(() => { });
+                    });
+                    break;
+                case '/openNotebook':
+                    // Open a local notebook
+                    //   vscode://ms-dotnettools.dotnet-interactive-vscode/openNotebook?path=C%3A%5Cpath%5Cto%5Cnotebook.dib
+                    // New untitled notebook from remote source
+                    //   vscode://ms-dotnettools.dotnet-interactive-vscode/openNotebook?url=http%3A%2F%2Fexample.com%2Fnotebook.dib
+                    const notebookPath = params.get('path');
+                    const url = params.get('url');
+                    if (notebookPath) {
+                        vscode.commands.executeCommand('dotnet-interactive.acquire').then(() => {
+                            vscode.commands.executeCommand('dotnet-interactive.openNotebook', vscode.Uri.file(notebookPath)).then(() => { });
+                        });
+                    } else if (url) {
+                        openNotebookFromUrl(url, clientMapper, diagnosticsChannel).then(() => { });
+                    }
+                    break;
+            }
+        }
+    });
 
     registerKernelCommands(context, clientMapper);
 
@@ -144,11 +184,10 @@ export async function activate(context: vscode.ExtensionContext) {
         throw new Error(`Unable to find bootstrapper API expected at '${apiBootstrapperUri.fsPath}'.`);
     }
 
-    versionSpecificFunctions.registerWithVsCode(context, clientMapper, diagnosticsChannel, apiBootstrapperUri);
-
+    registerWithVsCode(context, clientMapper, diagnosticsChannel, clientMapperConfig.createErrorOutput, apiBootstrapperUri);
     registerFileCommands(context, clientMapper);
 
-    context.subscriptions.push(vscode.notebook.onDidCloseNotebookDocument(notebookDocument => clientMapper.closeClient(notebookDocument.uri)));
+    context.subscriptions.push(vscode.workspace.onDidCloseNotebookDocument(notebookDocument => clientMapper.closeClient(notebookDocument.uri)));
     context.subscriptions.push(vscode.workspace.onDidRenameFiles(e => handleFileRenames(e, clientMapper)));
 
     // language registration
@@ -157,6 +196,56 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+}
+
+function createErrorOutput(message: string, outputId?: string): vscodeLike.NotebookCellOutput {
+    const error = { name: 'Error', message };
+    const errorItem = vscode.NotebookCellOutputItem.error(error);
+    const cellOutput = createOutput([errorItem], outputId);
+    return cellOutput;
+}
+
+function registerWithVsCode(context: vscode.ExtensionContext, clientMapper: ClientMapper, outputChannel: OutputChannelAdapter, createErrorOutput: ErrorOutputCreator, ...preloadUris: vscode.Uri[]) {
+    const config = {
+        clientMapper,
+        preloadUris,
+        createErrorOutput,
+    };
+    context.subscriptions.push(new notebookControllers.DotNetNotebookKernel(config));
+    notebookSerializers.DotNetDibNotebookSerializer.registerNotebookSerializer(context, 'dotnet-interactive', clientMapper, outputChannel);
+    notebookSerializers.DotNetLegacyNotebookSerializer.registerNotebookSerializer(context, 'dotnet-interactive-legacy', clientMapper, outputChannel);
+}
+
+async function openNotebookFromUrl(notebookUrl: string, clientMapper: ClientMapper, diagnosticsChannel: OutputChannelAdapter): Promise<void> {
+    await vscode.commands.executeCommand('dotnet-interactive.acquire');
+    const extension = path.extname(notebookUrl);
+    let serializer: notebookSerializers.DotNetDibNotebookSerializer | undefined = undefined;
+    let viewType: string | undefined = undefined;
+    switch (extension) {
+        case '.dib':
+        case '.dotnet-interactive':
+            serializer = new notebookSerializers.DotNetDibNotebookSerializer(clientMapper, diagnosticsChannel);
+            viewType = 'dotnet-interactive';
+            break;
+        case '.ipynb':
+            serializer = new notebookSerializers.DotNetJupyterNotebookSerializer(clientMapper, diagnosticsChannel);
+            viewType = 'jupyter-notebook';
+            break;
+    }
+
+    if (serializer && viewType) {
+        try {
+            const response = await fetch(notebookUrl);
+            const arrayBuffer = await response.arrayBuffer();
+            const content = new Uint8Array(arrayBuffer);
+            const cancellationTokenSource = new vscode.CancellationTokenSource();
+            const notebookData = await serializer.deserializeNotebook(content, cancellationTokenSource.token);
+            const notebook = await vscode.workspace.openNotebookDocument(viewType, notebookData);
+            const _editor = await vscode.window.showNotebookDocument(notebook);
+        } catch (e) {
+            vscode.window.showWarningMessage(`Unable to read notebook from '${notebookUrl}': ${e}`);
+        }
+    }
 }
 
 interface DotnetPackExtensionExports {
@@ -182,9 +271,9 @@ async function waitForSdkInstall(requiredSdkVersion: string): Promise<void> {
 async function updateNotebookCellLanguageInMetadata(candidateNotebookCellDocument: vscode.TextDocument) {
     const notebook = candidateNotebookCellDocument.notebook;
     if (notebook &&
-        isJupyterNotebookViewType(notebook.viewType) &&
+        isJupyterNotebookViewType(notebook.notebookType) &&
         isDotnetInteractiveLanguage(candidateNotebookCellDocument.languageId)) {
-        const cell = versionSpecificFunctions.getCells(notebook).find(c => c.document === candidateNotebookCellDocument);
+        const cell = notebook.getCells().find(c => c.document === candidateNotebookCellDocument);
         if (cell) {
             const cellLanguage = cell.kind === vscode.NotebookCellKind.Code
                 ? getSimpleLanguage(candidateNotebookCellDocument.languageId)
@@ -192,15 +281,7 @@ async function updateNotebookCellLanguageInMetadata(candidateNotebookCellDocumen
 
             const dotnetMetadata = getDotNetMetadata(cell.metadata);
             if (dotnetMetadata.language !== cellLanguage) {
-                const newMetadata = cell.metadata.with({
-                    custom: {
-                        metadata: {
-                            dotnet_interactive: {
-                                language: cellLanguage
-                            }
-                        }
-                    }
-                });
+                const newMetadata = withDotNetCellMetadata(cell.metadata, cellLanguage);
                 const edit = new vscode.WorkspaceEdit();
                 edit.replaceNotebookCellMetadata(notebook.uri, cell.index, newMetadata);
                 await vscode.workspace.applyEdit(edit);

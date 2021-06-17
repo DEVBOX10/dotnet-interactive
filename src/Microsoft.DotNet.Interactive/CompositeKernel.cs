@@ -33,6 +33,7 @@ namespace Microsoft.DotNet.Interactive
         private readonly List<Kernel> _childKernels = new();
         private readonly Dictionary<string, Kernel> _kernelsByNameOrAlias;
         private readonly AssemblyBasedExtensionLoader _extensionLoader = new();
+        private readonly ScriptBasedExtensionLoader _scriptExtensionLoader = new();
         private string _defaultKernelName;
         private Command _connectDirective;
 
@@ -76,6 +77,8 @@ namespace Microsoft.DotNet.Interactive
             }
 
             kernel.ParentKernel = this;
+            kernel.RootKernel = RootKernel;
+
             kernel.AddMiddleware(LoadExtensions);
             kernel.SetScheduler(Scheduler);
 
@@ -315,6 +318,11 @@ namespace Microsoft.DotNet.Interactive
             KernelInvocationContext context)
         {
             await _extensionLoader.LoadFromDirectoryAsync(
+                directory,
+                this,
+                context);
+
+            await _scriptExtensionLoader.LoadFromDirectoryAsync(
                 directory,
                 this,
                 context);

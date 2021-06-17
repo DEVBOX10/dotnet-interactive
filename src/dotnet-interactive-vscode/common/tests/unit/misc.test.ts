@@ -5,7 +5,8 @@ import { expect } from 'chai';
 import { NotebookCellDisplayOutput, NotebookCellErrorOutput, NotebookCellTextOutput } from '../../interfaces/contracts';
 import { isDisplayOutput, isErrorOutput, isTextOutput, reshapeOutputValueForVsCode } from '../../interfaces/utilities';
 import { isDotNetNotebookMetadata, isIpynbFile } from '../../ipynbUtilities';
-import { debounce, executeSafe, isDotNetUpToDate, parse, processArguments, stringify } from '../../utilities';
+import { createUri, debounce, executeSafe, getWorkingDirectoryForNotebook, isDotNetUpToDate, parse, processArguments, stringify } from '../../utilities';
+import { decodeNotebookCellOutputs, decodeToString } from './utilities';
 
 import * as vscodeLike from '../../interfaces/vscode-like';
 
@@ -78,7 +79,7 @@ describe('Miscellaneous tests', () => {
             ],
             workingDirectory: '{global_storage_path}'
         };
-        let actual = processArguments(template, 'replacement-working-dir/notebook-file.dib', 'unused-working-dir', 'replacement-dotnet-path', 'replacement-global-storage-path');
+        let actual = processArguments(template, 'replacement-working-dir', 'replacement-dotnet-path', 'replacement-global-storage-path');
         expect(actual).to.deep.equal({
             command: 'replacement-dotnet-path',
             args: [
@@ -94,24 +95,34 @@ describe('Miscellaneous tests', () => {
         });
     });
 
-    it(`uses the fallback working directory when it can't be reasonably determined`, () => {
-        const template = {
-            args: [
-                '{dotnet_path}',
-                '--working-dir',
-                '{working_dir}'
-            ],
-            workingDirectory: '{global_storage_path}'
-        };
-        let actual = processArguments(template, 'notebook-file-with-no-dir.dib', 'fallback-working-dir', 'dotnet-path', 'global-storage-path');
-        expect(actual).to.deep.equal({
-            command: 'dotnet-path',
-            args: [
-                '--working-dir',
-                'fallback-working-dir'
-            ],
-            workingDirectory: 'global-storage-path'
-        });
+    it('notebook working directory comes from notebook uri if local', () => {
+        const notebookUri = createUri('path/to/notebook.dib');
+        const workspaceFolderUris = [
+            createUri('not/used/1'),
+            createUri('not/used/2'),
+        ];
+        const workingDir = getWorkingDirectoryForNotebook(notebookUri, workspaceFolderUris, 'fallback-not-used');
+        expect(workingDir).to.equal('path/to');
+    });
+
+    it('notebook working directory comes from local workspace if notebook is untitled', () => {
+        const notebookUri = createUri('path/to/notebook.dib', 'untitled');
+        const workspaceFolderUris = [
+            createUri('not/used', 'remote'),
+            createUri('this/is/local/and/used'),
+        ];
+        const workingDir = getWorkingDirectoryForNotebook(notebookUri, workspaceFolderUris, 'fallback-not-used');
+        expect(workingDir).to.equal('this/is/local/and/used');
+    });
+
+    it('notebook working directory comes from fallback if notebook is remote', () => {
+        const notebookUri = createUri('path/to/notebook.dib', 'remote');
+        const workspaceFolderUris = [
+            createUri('not/used/1'),
+            createUri('not/used/2'),
+        ];
+        const workingDir = getWorkingDirectoryForNotebook(notebookUri, workspaceFolderUris, 'fallback-is-used');
+        expect(workingDir).to.equal('fallback-is-used');
     });
 
     it('debounce test', async () => {
@@ -197,33 +208,19 @@ describe('Miscellaneous tests', () => {
 
     describe('vs code output value reshaping', () => {
         it('error string is reshaped', () => {
-            const reshaped = reshapeOutputValueForVsCode(vscodeLike.ErrorOutputMimeType, 'some error message');
-            expect(reshaped).to.deep.equal({
+            const reshaped = reshapeOutputValueForVsCode('some error message', vscodeLike.ErrorOutputMimeType);
+            const decoded = JSON.parse(decodeToString(reshaped));
+            expect(decoded).to.deep.equal({
                 ename: 'Error',
                 evalue: 'some error message',
                 traceback: [],
             });
         });
 
-        it(`properly shaped output isn't reshaped`, () => {
-            const reshaped = reshapeOutputValueForVsCode(vscodeLike.ErrorOutputMimeType, { ename: 'Error2', evalue: 'some error message', traceback: [] });
-            expect(reshaped).to.deep.equal({
-                ename: 'Error2',
-                evalue: 'some error message',
-                traceback: [],
-            });
-        });
-
-        it('non-string error message is not reshaped', () => {
-            const reshaped = reshapeOutputValueForVsCode(vscodeLike.ErrorOutputMimeType, { some_deep_value: 'some error message' });
-            expect(reshaped).to.deep.equal({
-                some_deep_value: 'some error message',
-            });
-        });
-
         it(`non-error mime type doesn't reshape output`, () => {
-            const reshaped = reshapeOutputValueForVsCode('text/plain', 'some error message');
-            expect(reshaped).to.equal('some error message');
+            const reshaped = reshapeOutputValueForVsCode('some error message', 'text/plain');
+            const decoded = decodeToString(reshaped);
+            expect(decoded).to.equal('some error message');
         });
     });
 

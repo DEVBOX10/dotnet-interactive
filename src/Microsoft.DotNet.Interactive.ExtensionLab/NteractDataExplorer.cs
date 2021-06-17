@@ -5,6 +5,7 @@ using System;
 using System.Text;
 using Microsoft.AspNetCore.Html;
 using Microsoft.DotNet.Interactive.Formatting;
+using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.Http;
 
 namespace Microsoft.DotNet.Interactive.ExtensionLab
@@ -12,11 +13,22 @@ namespace Microsoft.DotNet.Interactive.ExtensionLab
     public class NteractDataExplorer: DataExplorer<TabularDataResource>
     {
         private static Uri _defaultLibraryUri;
+
         private static string _defaultLibraryVersion;
+
         private static string _defaultCacheBuster;
 
+        public NteractDataExplorer(TabularDataResource data) : base(data)
+        {
+            LibraryUri = _defaultLibraryUri;
+            LibraryVersion = _defaultLibraryVersion;
+            CacheBuster = _defaultCacheBuster;
+        }
+
         public Uri LibraryUri { get; set; }
+
         public string LibraryVersion { get; set; }
+
         public string CacheBuster { get; set; }
 
         public static void SetDefaultConfiguration(Uri libraryUri, string libraryVersion, string cacheBuster)
@@ -30,18 +42,12 @@ namespace Microsoft.DotNet.Interactive.ExtensionLab
         {
             SetDefaultConfiguration(null, null, null);
         }
-        public NteractDataExplorer(TabularDataResource data) : base(data)
-        {
-            LibraryUri = _defaultLibraryUri;
-            LibraryVersion = _defaultLibraryVersion;
-            CacheBuster = _defaultCacheBuster;
-        }
 
         protected override IHtmlContent ToHtml()
         {
             var requireUri = new Uri("https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js");
             var divId = Id;
-            var data = Data.ToJson();
+            var data = Data.ToJsonString();
             var code = new StringBuilder();
             var functionName = $"renderNteractDataExplorer_{divId}";
 

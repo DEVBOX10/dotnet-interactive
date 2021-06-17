@@ -5,7 +5,6 @@ using System.CommandLine;
 using System.IO.Pipes;
 using System.Security.Principal;
 using System.Threading.Tasks;
-using Microsoft.DotNet.Interactive.Server;
 
 namespace Microsoft.DotNet.Interactive.Connection
 {
@@ -27,10 +26,21 @@ namespace Microsoft.DotNet.Interactive.Connection
 
             await clientStream.ConnectAsync();
             clientStream.ReadMode = PipeTransmissionMode.Message;
-            var client = clientStream.CreateKernelClient();
-            var proxyKernel = new ProxyKernel(options.KernelName, client);
 
-            proxyKernel.RegisterForDisposal(client);
+
+            var proxyKernel = CreateProxyKernel2(options, clientStream);
+
+            return proxyKernel;
+        }
+
+        private static ProxyKernel CreateProxyKernel2(NamedPipeConnectionOptions options, NamedPipeClientStream clientStream)
+        {
+            var receiver = new KernelCommandAndEventPipeStreamReceiver(clientStream);
+
+            var sender = new KernelCommandAndEventPipeStreamSender(clientStream);
+            var proxyKernel = new ProxyKernel(options.KernelName, receiver, sender);
+
+            var _ = proxyKernel.RunAsync();
             return proxyKernel;
         }
     }

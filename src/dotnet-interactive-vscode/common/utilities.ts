@@ -7,7 +7,6 @@ import * as path from 'path';
 import { v4 as uuid } from 'uuid';
 import { InstallInteractiveArgs, ProcessStart } from "./interfaces";
 import { ErrorOutputMimeType, NotebookCellOutput, NotebookCellOutputItem, ReportChannel, Uri } from './interfaces/vscode-like';
-import { isDotnetInteractiveLanguage } from './interactiveNotebook';
 
 export function executeSafe(command: string, args: Array<string>, workingDirectory?: string | undefined): Promise<{ code: number, output: string, error: string }> {
     return new Promise<{ code: number, output: string, error: string }>(resolve => {
@@ -69,17 +68,8 @@ export function createOutput(outputItems: Array<NotebookCellOutputItem>, outputI
 
     const output: NotebookCellOutput = {
         id: outputId,
-        outputs: outputItems,
+        items: outputItems,
     };
-    return output;
-}
-
-export function createErrorOutput(message: string, outputId?: string): NotebookCellOutput {
-    const outputItem: NotebookCellOutputItem = {
-        mime: ErrorOutputMimeType,
-        value: message,
-    };
-    const output = createOutput([outputItem], outputId);
     return output;
 }
 
@@ -87,12 +77,7 @@ export function isDotNetUpToDate(minVersion: string, commandResult: { code: numb
     return commandResult.code === 0 && compareVersions.compare(commandResult.output, minVersion, '>=');
 }
 
-export function processArguments(template: { args: Array<string>, workingDirectory: string }, notebookPath: string, fallbackWorkingDirectory: string, dotnetPath: string, globalStoragePath: string): ProcessStart {
-    let workingDirectory = path.parse(notebookPath).dir;
-    if (workingDirectory === '') {
-        workingDirectory = fallbackWorkingDirectory;
-    }
-
+export function processArguments(template: { args: Array<string>, workingDirectory: string }, workingDirectory: string, dotnetPath: string, globalStoragePath: string): ProcessStart {
     let map: { [key: string]: string } = {
         'dotnet_path': dotnetPath,
         'global_storage_path': globalStoragePath,
@@ -203,11 +188,27 @@ export function debounceAndReject<T>(key: string, timeout: number, callback: () 
     return newPromise;
 }
 
-export function createUri(fsPath: string): Uri {
+export function createUri(fsPath: string, scheme?: string): Uri {
     return {
         fsPath,
+        scheme: scheme || 'file',
         toString: () => fsPath
     };
+}
+
+export function getWorkingDirectoryForNotebook(notebookUri: Uri, workspaceFolderUris: Uri[], fallackWorkingDirectory: string): string {
+    switch (notebookUri.scheme) {
+        case 'file':
+            // local file, use it's own directory
+            return path.dirname(notebookUri.fsPath);
+        case 'untitled':
+            // unsaved notebook, use first local workspace folder
+            const firstLocalWorkspaceFolderUri = workspaceFolderUris.find(uri => uri.scheme === 'file');
+            return firstLocalWorkspaceFolderUri?.fsPath ?? fallackWorkingDirectory;
+        default:
+            // something else (e.g., remote notebook), use fallback
+            return fallackWorkingDirectory;
+    }
 }
 
 export function parse(text: string): any {

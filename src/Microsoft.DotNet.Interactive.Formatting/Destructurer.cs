@@ -7,14 +7,14 @@ using System.Collections.Concurrent;
 
 namespace Microsoft.DotNet.Interactive.Formatting
 {
-    internal static class Destructurer
+    public static class Destructurer
     {
         private static ConcurrentDictionary<Type, IDestructurer> _cache;
 
         static Destructurer()
         {
             InitializeCache();
-            Formatter.Clearing += (sender, args) => InitializeCache();
+            Formatter.Clearing += InitializeCache;
         }
 
         private static void InitializeCache()

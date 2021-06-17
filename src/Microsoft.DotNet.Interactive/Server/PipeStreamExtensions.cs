@@ -18,17 +18,25 @@ namespace Microsoft.DotNet.Interactive.Server
             try
             {
                 var byteMemory = new Memory<byte>(buffer);
-                using (var ms = new MemoryStream())
+#if !NETSTANDARD2_0
+                await using var ms = new MemoryStream();
+                do
                 {
-                    do
-                    {
-                        var readBytes = await stream.ReadAsync(byteMemory, cancellationToken);
-                        await ms.WriteAsync(byteMemory.Slice(0, readBytes), cancellationToken);
-                    }
-                    while (!stream.IsMessageComplete);
-
-                    return System.Text.Encoding.Default.GetString(ms.ToArray());
+                    var readBytes = await stream.ReadAsync(byteMemory, cancellationToken);
+                    await ms.WriteAsync(byteMemory[..readBytes], cancellationToken);
                 }
+                while (!stream.IsMessageComplete);
+#else
+                using var ms = new MemoryStream();
+                do
+                {
+                    var readBytes = await stream.ReadAsync(buffer, 0, (int)buffer.Length, cancellationToken);
+                    await ms.WriteAsync(buffer, 0, readBytes, cancellationToken);
+                }
+                while (!stream.IsMessageComplete);
+#endif
+
+                return System.Text.Encoding.Default.GetString(ms.ToArray());
             }
             finally
             {
@@ -42,7 +50,7 @@ namespace Microsoft.DotNet.Interactive.Server
             using var writer = new StreamWriter(ms);
             writer.Write(message);
             writer.Flush();
-            stream.Write(ms.ToArray());
+            stream.Write(ms.ToArray(), 0, (int)ms.Length);
         }
     }
 }

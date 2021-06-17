@@ -9,11 +9,13 @@ import { provideCompletion } from './../../languageServices/completion';
 import { provideHover } from './../../languageServices/hover';
 import { provideSignatureHelp } from '../../languageServices/signatureHelp';
 import { CommandSucceededType, CompletionsProducedType, HoverTextProducedType, SignatureHelpProducedType } from '../../interfaces/contracts';
+import { createUri } from '../../utilities';
+import { createKernelTransportConfig } from './utilities';
 
 describe('LanguageProvider tests', () => {
     it('CompletionProvider', async () => {
-        let token = '123';
-        let clientMapper = new ClientMapper(async (notebookPath) => new TestKernelTransport({
+        const token = '123';
+        const config = createKernelTransportConfig(async (_notebookPath) => new TestKernelTransport({
             'RequestCompletions': [
                 {
                     eventType: CompletionsProducedType,
@@ -39,20 +41,21 @@ describe('LanguageProvider tests', () => {
                 }
             ]
         }));
-        clientMapper.getOrAddClient({ fsPath: 'test/path' });
+        const clientMapper = new ClientMapper(config);
+        clientMapper.getOrAddClient(createUri('test/path'));
 
-        let code = 'Math.';
-        let document = {
-            uri: { fsPath: 'test/path' },
+        const code = 'Math.';
+        const document = {
+            uri: createUri('test/path'),
             getText: () => code
         };
-        let position = {
+        const position = {
             line: 0,
             character: 5
         };
 
         // perform the completion request
-        let completion = await provideCompletion(clientMapper, 'csharp', document, position, 0, token);
+        const completion = await provideCompletion(clientMapper, 'csharp', document, position, 0, token);
         expect(completion).to.deep.equal({
             linePositionSpan: null,
             completions: [
@@ -69,8 +72,8 @@ describe('LanguageProvider tests', () => {
     });
 
     it('HoverProvider', async () => {
-        let token = '123';
-        let clientMapper = new ClientMapper(async (notebookPath) => new TestKernelTransport({
+        const token = '123';
+        const config = createKernelTransportConfig(async (_notebookPath) => new TestKernelTransport({
             'RequestHoverText': [
                 {
                     eventType: HoverTextProducedType,
@@ -102,20 +105,21 @@ describe('LanguageProvider tests', () => {
                 }
             ]
         }));
-        clientMapper.getOrAddClient({ fsPath: 'test/path' });
+        const clientMapper = new ClientMapper(config);
+        clientMapper.getOrAddClient(createUri('test/path'));
 
-        let code = 'var x = 1234;';
-        let document = {
-            uri: { fsPath: 'test/path' },
+        const code = 'var x = 1234;';
+        const document = {
+            uri: createUri('test/path'),
             getText: () => code,
         };
-        let position = {
+        const position = {
             line: 0,
             character: 10
         };
 
         // perform the hover request
-        let hover = await provideHover(clientMapper, 'csharp', document, position, 0, token);
+        const hover = await provideHover(clientMapper, 'csharp', document, position, 0, token);
         expect(hover).to.deep.equal({
             contents: 'readonly struct System.Int32',
             isMarkdown: true,
@@ -133,8 +137,8 @@ describe('LanguageProvider tests', () => {
     });
 
     it('SignatureHelpProvider', async () => {
-        let token = '123';
-        let clientMapper = new ClientMapper(async (_notebookPath) => new TestKernelTransport({
+        const token = '123';
+        const config = createKernelTransportConfig(async (_notebookPath) => new TestKernelTransport({
             'RequestSignatureHelp': [
                 {
                     eventType: SignatureHelpProducedType,
@@ -169,20 +173,21 @@ describe('LanguageProvider tests', () => {
                 }
             ]
         }));
-        clientMapper.getOrAddClient({ fsPath: 'test/path' });
+        const clientMapper = new ClientMapper(config);
+        clientMapper.getOrAddClient(createUri('test/path'));
 
-        let code = 'Console.WriteLine(true';
-        let document = {
-            uri: { fsPath: 'test/path' },
+        const code = 'Console.WriteLine(true';
+        const document = {
+            uri: createUri('test/path'),
             getText: () => code,
         };
-        let position = {
+        const position = {
             line: 0,
             character: 22
         };
 
         // perform the sig help request
-        let sigHelp = await provideSignatureHelp(clientMapper, 'csharp', document, position, 0, token);
+        const sigHelp = await provideSignatureHelp(clientMapper, 'csharp', document, position, 0, token);
         expect(sigHelp).to.deep.equal({
             activeParameter: 0,
             activeSignature: 0,

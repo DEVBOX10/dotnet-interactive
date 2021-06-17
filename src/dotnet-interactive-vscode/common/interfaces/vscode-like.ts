@@ -8,17 +8,18 @@ export enum NotebookCellKind {
     Code = 2
 }
 
-export const ErrorOutputMimeType = 'application/x.notebook.error-traceback';
+export const ErrorOutputMimeType = 'application/vnd.code.notebook.error';
 
 export interface NotebookCellOutputItem {
     readonly mime: string;
-    readonly value: unknown;
-    readonly metadata?: Record<string, string | number | boolean | unknown>;
+    readonly data: Uint8Array;
+    [key: string]: any; // this is to make compilation on stable happy
 }
 
 export interface NotebookCellOutput {
-    readonly id: string;
-    readonly outputs: NotebookCellOutputItem[];
+    id: string;
+    items: NotebookCellOutputItem[];
+    metadata?: { [key: string]: any };
 }
 
 export enum NotebookCellRunState {
@@ -28,29 +29,16 @@ export enum NotebookCellRunState {
     Error = 4
 }
 
-export interface NotebookCellMetadata {
-    editable?: boolean,
-    breakpointMargin?: boolean,
-    runnable?: boolean,
-    hasExecutionOrder?: boolean,
-    executionOrder?: number,
-    runState?: NotebookCellRunState,
-    runStartTime?: number,
-    statusMessage?: string,
-    lastRunDuration?: number,
-    inputCollapsed?: boolean,
-    outputCollapsed?: boolean,
-    custom?: Record<string, any>,
-}
-
 export interface Uri {
     fsPath: string;
+    scheme: string;
     toString: () => string;
 }
 
 export interface Document {
     uri: Uri;
     getText: { (): string };
+    notebook?: NotebookDocument | undefined;
 }
 
 export interface NotebookCell {
@@ -61,7 +49,7 @@ export interface NotebookCell {
 }
 
 export interface NotebookDocument {
-    readonly cells: ReadonlyArray<NotebookCell>;
+    readonly uri: Uri;
 }
 
 export interface NotebookCellData {
@@ -69,7 +57,7 @@ export interface NotebookCellData {
     source: string;
     language: string;
     outputs: NotebookCellOutput[];
-    metadata?: NotebookCellMetadata;
+    metadata?: { [key: string]: any };
 }
 
 export interface NotebookDocumentBackup {

@@ -13,8 +13,9 @@ namespace Microsoft.DotNet.Interactive.Formatting
     public class FormatContext : IDisposable
     {
         private Dictionary<string, IHtmlContent> _requiredContent;
+        private readonly bool _disposeWriter;
 
-        public FormatContext() : this(new StringWriter())
+        public FormatContext() : this(new StringWriter(), true)
         {
         }
 
@@ -22,8 +23,14 @@ namespace Microsoft.DotNet.Interactive.Formatting
         {
             Writer = writer;
         }
+        
+        private FormatContext(TextWriter writer, bool disposeWriter)
+        {
+            Writer = writer;
+            _disposeWriter = disposeWriter;
+        }
 
-        internal int Depth { get; private set; }
+        public int Depth { get; private set; }
 
         internal int TableDepth { get; private set; }
 
@@ -64,6 +71,11 @@ namespace Microsoft.DotNet.Interactive.Formatting
                 }
 
                 _requiredContent = null;
+            }
+
+            if (_disposeWriter)
+            {
+                Writer.Dispose();
             }
         }
     }

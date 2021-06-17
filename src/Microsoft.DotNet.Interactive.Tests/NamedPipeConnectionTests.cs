@@ -3,6 +3,7 @@
 
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.DotNet.Interactive.Commands;
@@ -69,6 +70,8 @@ x");
 
             await localCompositeKernel.SendAsync(connectToRemoteKernel);
             await localCompositeKernel.SendAsync(codeSubmissionForRemoteKernel);
+            
+            events.Should().NotContainErrors();
 
             remoteDefaultKernelInvoked.Should()
                                       .BeTrue();

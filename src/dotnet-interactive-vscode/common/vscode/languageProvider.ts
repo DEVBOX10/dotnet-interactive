@@ -9,7 +9,6 @@ import { notebookCellLanguages, getSimpleLanguage, notebookCellChanged } from '.
 import { convertToRange, toVsCodeDiagnostic } from './vscodeUtilities';
 import { getDiagnosticCollection } from './diagnostics';
 import { provideSignatureHelp } from './../languageServices/signatureHelp';
-import * as versionSpecificFunctions from '../../versionSpecificFunctions';
 
 export class CompletionItemProvider implements vscode.CompletionItemProvider {
     static readonly triggerCharacters = ['.'];
@@ -74,6 +73,7 @@ export class HoverProvider implements vscode.HoverProvider {
     }
 
     provideHover(document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken): vscode.ProviderResult<vscode.Hover> {
+
         const hoverPromise = provideHover(this.clientMapper, getSimpleLanguage(document.languageId), document, position, this.languageServiceDelay);
         return ensureErrorsAreRejected(hoverPromise, result => {
             const contents = result.isMarkdown
@@ -132,7 +132,8 @@ export function registerLanguageProviders(clientMapper: ClientMapper, languageSe
     disposables.push(vscode.languages.registerSignatureHelpProvider(languages, new SignatureHelpProvider(clientMapper, languageServiceDelay), ...SignatureHelpProvider.triggerCharacters));
     disposables.push(vscode.workspace.onDidChangeTextDocument(e => {
         if (vscode.languages.match(notebookCellLanguages, e.document)) {
-            const cell = versionSpecificFunctions.getCells(vscode.window.activeNotebookEditor?.document).find(cell => cell.document === e.document);
+            const cells = vscode.window.activeNotebookEditor?.document.getCells();
+            const cell = cells?.find(cell => cell.document === e.document);
             if (cell) {
                 notebookCellChanged(clientMapper, e.document, getSimpleLanguage(cell.document.languageId), languageServiceDelay, diagnostics => {
                     const collection = getDiagnosticCollection(e.document.uri);
