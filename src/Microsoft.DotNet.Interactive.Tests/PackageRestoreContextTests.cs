@@ -88,7 +88,8 @@ namespace Microsoft.DotNet.Interactive.Tests
         }
 
         [Fact]
-        public async Task Packages_from_previous_requests_are_not_returned_in_subsequent_results()
+        public async Task A_failing_package_restore_does_not_cause_future_resolves_to_fail()
+
         {
             using var restoreContext = new PackageRestoreContext();
             var added = restoreContext.GetOrAddPackageReference("FluentAssertions", "5.7.0");
@@ -109,6 +110,26 @@ namespace Microsoft.DotNet.Interactive.Tests
                         .Should()
                         .NotContain(r => r.PackageName == "FluentAssertions");
         }
+
+        [Fact]
+        public async Task Invalid_package_restores_are_not_remembered()
+        {
+            using var restoreContext = new PackageRestoreContext();
+
+            // This package does not exist
+            restoreContext.GetOrAddPackageReference("NonExistentNugetPackage", "99.99.99-NoReallyIDontExist");
+            var setupResult = await restoreContext.RestoreAsync();
+            setupResult.Succeeded.Should().BeFalse();
+
+            // Even though the previous restore failed, this one should succeed
+            restoreContext.GetOrAddPackageReference("FluentAssertions", "5.7.0");
+            var result = await restoreContext.RestoreAsync();
+
+            result.ResolvedReferences
+                       .Should()
+                       .Contain(r => r.PackageName == "FluentAssertions");
+        }
+
 
         [Fact]
         public async Task Can_get_path_to_nuget_packaged_assembly()
@@ -182,16 +203,23 @@ namespace Microsoft.DotNet.Interactive.Tests
         }
 
         [Fact]
+        public async Task Fail_if_restore_source_has_an_invalid_uri()
+        {
+            using var restoreContext = new PackageRestoreContext();
+            restoreContext.TryAddRestoreSource("https://completelyFakerestore Source");
+            var result = await restoreContext.RestoreAsync();
+            result.Succeeded.Should().BeFalse();
+        }
+
+        [Fact]
         public async Task Can_add_to_list_of_added_sources()
         {
             using var restoreContext = new PackageRestoreContext();
 
-            var savedRestoreSources = restoreContext.RestoreSources.ToArray();
-            restoreContext.AddRestoreSource("https://completely FakerestoreSource");
+            restoreContext.TryAddRestoreSource("https://completelyFakerestoreSource");
             await restoreContext.RestoreAsync();
-            var restoreSources = restoreContext.RestoreSources.Where(p => !savedRestoreSources.Contains(p));
-            restoreSources.Should()
-                          .ContainSingle("https://completely FakerestoreSource");
+            var restoreSources = restoreContext.RestoreSources;
+            restoreSources.Should().ContainSingle("https://completelyFakerestoreSource");
         }
 
         [Fact]
@@ -200,12 +228,12 @@ namespace Microsoft.DotNet.Interactive.Tests
             using var restoreContext = new PackageRestoreContext();
 
             var savedRestoreSources = restoreContext.RestoreSources.ToArray();
-            restoreContext.AddRestoreSource("https://completely FakerestoreSource");
-            restoreContext.AddRestoreSource("https://completely FakerestoreSource");
+            restoreContext.TryAddRestoreSource("https://completelyFakerestoreSource");
+            restoreContext.TryAddRestoreSource("https://completelyFakerestoreSource");
             await restoreContext.RestoreAsync();
             var restoreSources = restoreContext.RestoreSources.Where(p => !savedRestoreSources.Contains(p));
             restoreSources.Should()
-                          .ContainSingle("https://completely FakerestoreSource");
+                          .ContainSingle("https://completelyFakerestoreSource");
         }
 
         [Fact]

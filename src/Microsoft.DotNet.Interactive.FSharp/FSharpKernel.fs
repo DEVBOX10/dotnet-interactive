@@ -30,7 +30,6 @@ open FSharp.Compiler.Text.Position
 
 open FsAutoComplete
 open FSharp.Compiler.Symbols
-open FSharp.Compiler.Syntax
 
 type FSharpKernel () as this =
 
@@ -206,17 +205,16 @@ type FSharpKernel () as this =
 
             match result with
             | Ok(result) when not isError ->
-
                 match result with
-                | Some(value) when value.ReflectionType <> typeof<unit>  ->
+                | Some(value) when value.ReflectionType <> typeof<unit> ->
                     let value = value.ReflectionValue
                     let formattedValues = FormattedValue.FromObject(value)
                     context.Publish(ReturnValueProduced(value, codeSubmission, formattedValues))
-                | Some _ 
+                | Some _
                 | None -> ()
             | _ ->
                 if not (tokenSource.IsCancellationRequested) then
-                    let aggregateError = String.Join("\n", fsiDiagnostics )
+                    let aggregateError = String.Join("\n", fsiDiagnostics)
                     match result with
                     | Error (:? FsiCompilationException) 
                     | Ok _ ->
@@ -415,8 +413,8 @@ type FSharpKernel () as this =
         member this.HandleAsync(command: ChangeWorkingDirectory, context: KernelInvocationContext) = handleChangeWorkingDirectory command context |> Async.StartAsTask :> Task
 
     interface ISupportNuget with
-        member _.AddRestoreSource(source: string) =
-            this.PackageRestoreContext.AddRestoreSource source
+        member _.TryAddRestoreSource(source: string) =
+            this.PackageRestoreContext.TryAddRestoreSource source
 
         member _.GetOrAddPackageReference(packageName: string, packageVersion: string) =
             this.PackageRestoreContext.GetOrAddPackageReference (packageName, packageVersion)

@@ -26,6 +26,7 @@ using Microsoft.DotNet.Interactive.Jupyter.Formatting;
 using Microsoft.DotNet.Interactive.PowerShell;
 using Microsoft.DotNet.Interactive.Server;
 using Microsoft.DotNet.Interactive.Telemetry;
+using Microsoft.DotNet.Interactive.VSCode;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Pocket;
@@ -249,7 +250,10 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
 
                     services.AddKernel(kernel);
 
+                    var clientSideKernelClient = new SignalRBackchannelKernelClient();
+
                     services.AddSingleton(c => ConnectionInformation.Load(options.ConnectionFile))
+                        .AddSingleton(clientSideKernelClient)
                         .AddSingleton(c =>
                         {
                             return new JupyterRequestContextScheduler(delivery => c.GetRequiredService<JupyterRequestContextHandler>()
@@ -381,7 +385,7 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                 };
 
                 stdIOCommand.Handler = CommandHandler.Create<StartupOptions, StdIOOptions, IConsole, InvocationContext>(
-                    (startupOptions, options, console, context) =>
+                    async (startupOptions, options, console, context) =>
                     {
                         var isVsCode = context.ParseResult.Directives.Contains("vscode");
                         FrontendEnvironment frontendEnvironment = startupOptions.EnableHttpApi 
@@ -395,6 +399,8 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                         kernel.UseQuitCommand();
                         
                         var kernelServer = kernel.CreateKernelServer(startupOptions.WorkingDir);
+                        var frontEndKernel = kernelServer.GetFrontEndKernel("vscode");
+                        kernel.Add(frontEndKernel);
 
                         if (startupOptions.EnableHttpApi)
                         {
@@ -402,8 +408,17 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
 
                             if (isVsCode)
                             {
-                                services.AddSingleton(clientSideKernelClient);
+                                await kernel.VisitSubkernelsAsync(async k =>
+                                {
+                                    switch (k)
+                                    {
+                                        case DotNetKernel dk:
+                                            await dk.UseVSCodeHelpersAsync(kernel);
+                                            break;
+                                    }
+                                });
 
+                                services.AddSingleton(clientSideKernelClient);
                                 ((HtmlNotebookFrontendEnvironment)frontendEnvironment).RequiresAutomaticBootstrapping =
                                     false;
                                 kernel.Add(
@@ -424,14 +439,14 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                             {
                                 kernelServer.NotifyIsReady();
                             };
-                            return startHttp(startupOptions, console, startServer, context);
+                            await startHttp(startupOptions, console, startServer, context);
                         }
 
                         kernel.Add(
                             new JavaScriptKernel(),
                             new[] { "js" });
 
-                        return startStdIO(
+                        await startStdIO(
                         startupOptions,
                         kernelServer,
                         console);

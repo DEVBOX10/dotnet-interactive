@@ -25,7 +25,7 @@ namespace Microsoft.DotNet.Interactive
             AssemblyPaths = assemblyPaths ?? throw new ArgumentNullException(nameof(assemblyPaths));
             ProbingPaths = probingPaths ?? Array.Empty<string>();
             PackageRoot = packageRoot;
-            
+
             if (PackageRoot is null && 
                 AssemblyPaths.FirstOrDefault() is {} path)
             {

@@ -58,7 +58,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.21216.1" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.21308.1" />
     <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.17.0" />
     <PackageReference Include="FSharp.Compiler.Service">
       <PrivateAssets>all</PrivateAssets>
@@ -76,6 +76,7 @@
     <ProjectReference Include="..\Microsoft.DotNet.Interactive.Http\Microsoft.DotNet.Interactive.Http.csproj" />
     <ProjectReference Include="..\Microsoft.DotNet.Interactive.PowerShell\Microsoft.DotNet.Interactive.PowerShell.csproj" />
     <ProjectReference Include="..\Microsoft.DotNet.Interactive.Jupyter\Microsoft.DotNet.Interactive.Jupyter.csproj" />
+    <ProjectReference Include="..\Microsoft.DotNet.Interactive.VSCode\Microsoft.DotNet.Interactive.VSCode.csproj" />
     <ProjectReference Include="..\Microsoft.DotNet.Interactive.Telemetry\Microsoft.DotNet.Interactive.Telemetry.csproj" />
     <ProjectReference Include="..\Microsoft.DotNet.Interactive\Microsoft.DotNet.Interactive.csproj" />
   </ItemGroup>
