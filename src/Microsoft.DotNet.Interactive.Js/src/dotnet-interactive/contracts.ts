@@ -5,7 +5,6 @@
 
 // --------------------------------------------- Kernel Commands
 
-export const AddCellType = "AddCell";
 export const AddPackageType = "AddPackage";
 export const CancelType = "Cancel";
 export const ChangeWorkingDirectoryType = "ChangeWorkingDirectory";
@@ -18,13 +17,13 @@ export const RequestCompletionsType = "RequestCompletions";
 export const RequestDiagnosticsType = "RequestDiagnostics";
 export const RequestHoverTextType = "RequestHoverText";
 export const RequestSignatureHelpType = "RequestSignatureHelp";
+export const SendEditableCodeType = "SendEditableCode";
 export const SerializeNotebookType = "SerializeNotebook";
 export const SubmitCodeType = "SubmitCode";
 export const UpdateDisplayedValueType = "UpdateDisplayedValue";
 
 export type KernelCommandType =
-      typeof AddCellType
-    | typeof AddPackageType
+      typeof AddPackageType
     | typeof CancelType
     | typeof ChangeWorkingDirectoryType
     | typeof DisplayErrorType
@@ -36,21 +35,17 @@ export type KernelCommandType =
     | typeof RequestDiagnosticsType
     | typeof RequestHoverTextType
     | typeof RequestSignatureHelpType
+    | typeof SendEditableCodeType
     | typeof SerializeNotebookType
     | typeof SubmitCodeType
     | typeof UpdateDisplayedValueType;
 
-export interface AddCell extends KernelCommand {
-    language: string;
-    contents: string;
+export interface AddPackage extends KernelCommand {
+    packageReference: PackageReference;
 }
 
 export interface KernelCommand {
     targetKernelName?: string;
-}
-
-export interface AddPackage extends KernelCommand {
-    packageReference: PackageReference;
 }
 
 export interface Cancel extends KernelCommand {
@@ -100,6 +95,11 @@ export interface RequestHoverText extends LanguageServiceCommand {
 export interface RequestSignatureHelp extends LanguageServiceCommand {
 }
 
+export interface SendEditableCode extends KernelCommand {
+    language: string;
+    code: string;
+}
+
 export interface SerializeNotebook extends KernelCommand {
     fileName: string;
     notebook: NotebookDocument;
@@ -131,13 +131,11 @@ export const ErrorProducedType = "ErrorProduced";
 export const HoverTextProducedType = "HoverTextProduced";
 export const IncompleteCodeSubmissionReceivedType = "IncompleteCodeSubmissionReceived";
 export const InputProducedType = "InputProduced";
-export const InputRequestedType = "InputRequested";
 export const KernelExtensionLoadedType = "KernelExtensionLoaded";
 export const KernelReadyType = "KernelReady";
 export const NotebookParsedType = "NotebookParsed";
 export const NotebookSerializedType = "NotebookSerialized";
 export const PackageAddedType = "PackageAdded";
-export const PasswordRequestedType = "PasswordRequested";
 export const ReturnValueProducedType = "ReturnValueProduced";
 export const SignatureHelpProducedType = "SignatureHelpProduced";
 export const StandardErrorValueProducedType = "StandardErrorValueProduced";
@@ -158,13 +156,11 @@ export type KernelEventType =
     | typeof HoverTextProducedType
     | typeof IncompleteCodeSubmissionReceivedType
     | typeof InputProducedType
-    | typeof InputRequestedType
     | typeof KernelExtensionLoadedType
     | typeof KernelReadyType
     | typeof NotebookParsedType
     | typeof NotebookSerializedType
     | typeof PackageAddedType
-    | typeof PasswordRequestedType
     | typeof ReturnValueProducedType
     | typeof SignatureHelpProducedType
     | typeof StandardErrorValueProducedType
@@ -233,10 +229,6 @@ export interface InputProduced extends KernelEvent {
     value: string;
 }
 
-export interface InputRequested extends KernelEvent {
-    prompt: string;
-}
-
 export interface KernelExtensionLoaded extends KernelEvent {
 }
 
@@ -253,10 +245,6 @@ export interface NotebookSerialized extends KernelEvent {
 
 export interface PackageAdded extends KernelEvent {
     packageReference: ResolvedPackageReference;
-}
-
-export interface PasswordRequested extends KernelEvent {
-    prompt: string;
 }
 
 export interface ReturnValueProduced extends DisplayEvent {

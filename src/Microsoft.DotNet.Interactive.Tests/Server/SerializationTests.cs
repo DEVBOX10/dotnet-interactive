@@ -173,6 +173,8 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
 
                 yield return new RequestSignatureHelp("sig-help-contents", new LinePosition(1, 2));
 
+                yield return new SendEditableCode("language", "code");
+
                 yield return new SerializeNotebook("notebook.ipynb", new NotebookDocument(new[]
                 {
                     new NotebookCell("csharp", "user code", new NotebookCellOutput[]
@@ -280,8 +282,6 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
 
                 yield return new IncompleteCodeSubmissionReceived(submitCode);
 
-                yield return new InputRequested("prompt", submitCode);
-
                 var requestHoverTextCommand = new RequestHoverText("document-contents", new LinePosition(1, 2));
 
                 yield return new HoverTextProduced(
@@ -318,8 +318,6 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                         packageRoot: "/the/package/root",
                         probingPaths: new[] { "/probing/path/1", "/probing/path/2" }),
                         new SubmitCode("#r \"nuget:ThePackage,1.2.3\""));
-
-                yield return new PasswordRequested("password", submitCode);
 
                 yield return new ReturnValueProduced(
                     new HtmlString("<b>hi!</b>"),
