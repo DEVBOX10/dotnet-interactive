@@ -67,37 +67,55 @@ namespace Microsoft.DotNet.Interactive
             // Package names are case insensitive.
             var key = packageName.ToLower(CultureInfo.InvariantCulture);
 
-            if (_resolvedPackageReferences.TryGetValue(key, out var resolvedPackage))
+            PackageReference resolvedPackage = null;
+            if (_resolvedPackageReferences.TryGetValue(key, out var resolved))
             {
                 if (string.IsNullOrWhiteSpace(packageVersion) ||
                     packageVersion == "*" ||
-                    string.Equals(resolvedPackage.PackageVersion.Trim(), packageVersion.Trim(), StringComparison.OrdinalIgnoreCase))
+                    packageVersion == "*-*" ||
+                    string.Equals(resolved.PackageVersion.Trim(), packageVersion.Trim(), StringComparison.OrdinalIgnoreCase))
                 {
-                    return resolvedPackage;
+                    resolvedPackage = resolved;
                 }
                 else
                 {
-                    // It was previously resolved at a different version than the one requested
+                    // Package already loaded with a different version
                     return null;
                 }
             }
-
-            if (_requestedPackageReferences.TryGetValue(key, out PackageReference existingPackage))
+            else
             {
-                if (string.Equals(existingPackage.PackageVersion.Trim(), packageVersion.Trim(), StringComparison.OrdinalIgnoreCase))
+                if (_requestedPackageReferences.TryGetValue(key, out var requested))
                 {
-                    return existingPackage;
-                }
-                else
-                {
-                    return null;
+                    if (string.Equals(requested.PackageVersion.Trim(), packageVersion.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        resolvedPackage = requested;
+                    }
+                    else
+                    {
+                        // Package already loaded with a different version
+                        return null;
+                    }
                 }
             }
 
-            // Verify version numbers match note: wildcards/previews are considered distinct
-            var newPackageRef = new PackageReference(packageName, packageVersion);
-            _requestedPackageReferences.TryAdd(key, newPackageRef);
-            return newPackageRef;
+            return AppendPathSeparator(resolvedPackage);
+
+            PackageReference AppendPathSeparator(PackageReference resolved)
+            {
+                if (resolved is null)
+                {
+                    var newPackageRef = new PackageReference(packageName, packageVersion);
+                    _requestedPackageReferences.TryAdd(key, newPackageRef);
+                    return newPackageRef;
+                }
+                else
+                {
+                    var newPackageRef = new PackageReference(resolved.PackageName, resolved.PackageVersion);
+                    _requestedPackageReferences.TryAdd(key, newPackageRef);
+                    return newPackageRef;
+                }
+            }
         }
 
         public IEnumerable<string> RestoreSources => _requestedRestoreSources.Values.Concat(_resolvedRestoreSources.Values);
@@ -210,7 +228,7 @@ namespace Microsoft.DotNet.Interactive
             if (iDependencyManager is null)
             {
                 // If this happens it is because of a bug in the Dependency provider. or deployment failed to deploy the nuget provider dll.
-                // We guarantee the presence of the nuget provider, by shipping it with the notebook product
+                // We guarantee the presence of the nuget provider, by shipping it with the interactive product
                 throw new InvalidOperationException("Internal error - unable to locate the nuget package manager, please try to reinstall.");
             }
 

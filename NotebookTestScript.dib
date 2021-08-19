@@ -6,7 +6,7 @@ You'll notice a counter that appears and starts incrementing.  After a second or
 
 ```
 5
-Error: Comamnd cancelled
+Comamnd cancelled
 ```
 
 #!csharp
@@ -42,6 +42,8 @@ var x = 123;
 The value is 123.
 ```
 
+And the output below the next cell should display the same value.
+
 #!javascript
 
 const x = await interactive.csharp.getVariable("x");
@@ -65,7 +67,7 @@ display(new { Name = "Developer", Salary = 42 }, "application/json");
 # Execute the next cell and verify the following error appears:
 
 ```
-Error: input.fsx (1,11)-(1,12) parse error Unexpected token '+' or incomplete expression
+input.fsx (1,11)-(1,12) parse error Unexpected token '+' or incomplete expression
 ```
 
 #!fsharp
@@ -151,3 +153,48 @@ let x = 1 +
 1. `Ctrl+Shift+P` => ".NET Interactive: Open notebook"
 2. Select the "Untitled-1.dib"/"Untitled-1.ipynb" from before.
 3. Verify that it contains a single F# cell with the contents "1+1" and that it can execute.
+
+#!markdown
+
+# Complex console output
+
+#!markdown
+
+The output shoudl look like:
+
+<span style="color:#00FF00">this should be green</span>
+
+this is white
+
+<span style="color:#FF0000">this should be red</span>
+
+#!csharp
+
+Console.Write("\x1b[38;2;0;255;0m");
+Console.WriteLine("this should be green");
+Console.Write("\x1b[0m");
+"this is white".Display();
+Console.Error.Write("\x1b[38;2;255;0;0m");
+Console.Error.WriteLine("this should be red");
+Console.Error.Write("\x1b[0m");
+
+#!markdown
+
+# vscode kernel
+This cell should prompt the user for input
+
+#!csharp
+
+var input = await InteractiveHost.GetInputAsync("give me data");
+input
+
+#!markdown
+
+Test adding cell to notebook (VSCode only)
+
+#!csharp
+
+using Microsoft.DotNet.Interactive;
+using Microsoft.DotNet.Interactive.Commands;
+
+var _ = Kernel.Root.SendAsync(new SendEditableCode("markdown","# this is a markdown cell."));

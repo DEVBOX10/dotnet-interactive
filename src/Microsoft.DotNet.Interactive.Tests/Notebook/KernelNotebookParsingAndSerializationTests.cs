@@ -5,8 +5,8 @@ using System.Text;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.DotNet.Interactive.Commands;
+using Microsoft.DotNet.Interactive.Documents;
 using Microsoft.DotNet.Interactive.Events;
-using Microsoft.DotNet.Interactive.Notebook;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Xunit;
 using Xunit.Abstractions;
@@ -20,8 +20,10 @@ namespace Microsoft.DotNet.Interactive.Tests.Notebook
         {
         }
 
-        [Fact]
-        public async Task composite_kernel_can_parse_notebooks()
+        [Theory]
+        [InlineData("interactive.dib")]
+        [InlineData("interactive.dotnet-interactive")]
+        public async Task composite_kernel_can_parse_interactive_documents(string fileName)
         {
             using var kernel = CreateCompositeKernel();
 
@@ -31,14 +33,14 @@ var x = 1;
 ";
             var notebookBytes = Encoding.UTF8.GetBytes(notebookText);
 
-            await kernel.SendAsync(new ParseNotebook("notebook.dib", notebookBytes, ".NET"));
+            await kernel.SendAsync(new ParseInteractiveDocument(fileName, notebookBytes, ".NET"));
             
             KernelEvents
                 .Should()
-                .ContainSingle<NotebookParsed>()
+                .ContainSingle<InteractiveDocumentParsed>()
                 .Which
-                .Notebook
-                .Cells
+                .Document
+                .Elements
                 .Should()
                 .ContainSingle()
                 .Which
@@ -48,16 +50,76 @@ var x = 1;
         }
 
         [Fact]
-        public async Task composite_kernel_can_serialize_notebooks()
+        public async Task composite_kernel_can_parse_jupter_notebook()
         {
             using var kernel = CreateCompositeKernel();
 
-            var notebook = new NotebookDocument(new[]
+            var notebookText = @"
+{
+  ""cells"": [
+    {
+      ""cell_type"": ""code"",
+      ""execution_count"": 1,
+      ""metadata"": {
+        ""dotnet_interactive"": {
+          ""language"": ""csharp""
+        }
+      },
+      ""source"": [
+        ""var x = 1;""
+      ],
+      ""outputs"": []
+    }
+  ],
+  ""metadata"": {
+    ""kernelspec"": {
+      ""display_name"": "".NET (C#)"",
+      ""language"": ""C#"",
+      ""name"": "".net-csharp""
+    },
+    ""language_info"": {
+      ""file_extension"": "".cs"",
+      ""mimetype"": ""text/x-csharp"",
+      ""name"": ""C#"",
+      ""pygments_lexer"": ""csharp"",
+      ""version"": ""8.0""
+    }
+  },
+  ""nbformat"": 4,
+  ""nbformat_minor"": 4
+}
+";
+            var notebookBytes = Encoding.UTF8.GetBytes(notebookText);
+
+            await kernel.SendAsync(new ParseInteractiveDocument("notebook.ipynb", notebookBytes, ".NET"));
+
+            KernelEvents
+                .Should()
+                .ContainSingle<InteractiveDocumentParsed>()
+                .Which
+                .Document
+                .Elements
+                .Should()
+                .ContainSingle()
+                .Which
+                .Contents
+                .Should()
+                .Be("var x = 1;");
+        }
+
+        [Theory]
+        [InlineData("interactive.dib")]
+        [InlineData("interactive.dotnet-interactive")]
+        public async Task composite_kernel_can_serialize_notebooks(string fileName)
+        {
+            using var kernel = CreateCompositeKernel();
+
+            var notebook = new Documents.InteractiveDocument(new[]
             {
-                new NotebookCell("csharp", "var x = 1;")
+                new InteractiveDocumentElement("csharp", "var x = 1;")
             });
 
-            await kernel.SendAsync(new SerializeNotebook("notebook.dib", notebook, "\r\n", ".NET"));
+            await kernel.SendAsync(new SerializeInteractiveDocument(fileName, notebook, "\n", ".NET"));
 
             var expectedLines = new[]
             {
@@ -66,11 +128,11 @@ var x = 1;
                 "var x = 1;",
                 ""
             };
-            var expectedText = string.Join("\r\n", expectedLines);
+            var expectedText = string.Join("\n", expectedLines);
 
             KernelEvents
                 .Should()
-                .ContainSingle<NotebookSerialized>()
+                .ContainSingle<InteractiveDocumentSerialized>()
                 .Which
                 .RawData
                 .AsString() // passing throught via this helper to make a test failure easier to identify

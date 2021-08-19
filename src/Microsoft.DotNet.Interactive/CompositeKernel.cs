@@ -15,9 +15,10 @@ using System.Threading.Tasks;
 
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Connection;
+using Microsoft.DotNet.Interactive.Documents;
+using Microsoft.DotNet.Interactive.Documents.Jupyter;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Extensions;
-using Microsoft.DotNet.Interactive.Notebook;
 using Microsoft.DotNet.Interactive.Parsing;
 
 namespace Microsoft.DotNet.Interactive
@@ -26,8 +27,8 @@ namespace Microsoft.DotNet.Interactive
         Kernel,
         IExtensibleKernel,
         IEnumerable<Kernel>,
-        IKernelCommandHandler<ParseNotebook>,
-        IKernelCommandHandler<SerializeNotebook>
+        IKernelCommandHandler<ParseInteractiveDocument>,
+        IKernelCommandHandler<SerializeInteractiveDocument>
     {
         private readonly ConcurrentQueue<PackageAdded> _packagesToCheckForExtensions = new();
         private readonly List<Kernel> _childKernels = new();
@@ -104,26 +105,29 @@ namespace Microsoft.DotNet.Interactive
             RegisterForDisposal(kernel);
         }
 
-        public Task HandleAsync(ParseNotebook command, KernelInvocationContext context)
+        public Task HandleAsync(ParseInteractiveDocument command, KernelInvocationContext context)
         {
-            var notebook = ParseNotebook(command.FileName, command.RawData);
-            context.Publish(new NotebookParsed(notebook, command));
+            var notebook = ParseInteractiveDocument(command.FileName, command.RawData);
+            context.Publish(new InteractiveDocumentParsed(notebook, command));
             return Task.CompletedTask;
         }
 
-        public NotebookDocument ParseNotebook(string fileName, byte[] rawData)
+        private Documents.InteractiveDocument ParseInteractiveDocument(string fileName, byte[] rawData)
         {
-            // FIX: (ParseNotebook) make this internal, make name congruent with SerializeNotebook
             var kernelLanguageAliases = _kernelsByNameOrAlias.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name);
             kernelLanguageAliases.Remove(Name); // remove `.NET`
-            var notebook = NotebookFileFormatHandler.Parse(fileName, rawData, DefaultKernelName, kernelLanguageAliases);
+
+            using var stream = new MemoryStream(rawData);
+            var notebook = Read(fileName, stream, DefaultKernelName, kernelLanguageAliases);
             return notebook;
         }
 
-        public Task HandleAsync(SerializeNotebook command, KernelInvocationContext context)
+        public Task HandleAsync(SerializeInteractiveDocument command, KernelInvocationContext context)
         {
-            var rawData = NotebookFileFormatHandler.Serialize(command.FileName, command.Notebook, command.NewLine);
-            context.Publish(new NotebookSerialized(rawData, command));
+            using var stream = new MemoryStream();
+            Write(command.FileName, command.Document, command.NewLine,stream);
+            var rawData = stream.ToArray();
+            context.Publish(new InteractiveDocumentSerialized(rawData, command));
             return Task.CompletedTask;
         }
 
@@ -378,6 +382,40 @@ namespace Microsoft.DotNet.Interactive
             _connectDirective.Add(connectionCommand);
 
             SubmissionParser.ResetParser();
+        }
+
+        private static InteractiveDocument Read(string fileName, Stream stream, string defaultLanguage, IDictionary<string, string> kernelLanguageAliases)
+        {
+            var extension = Path.GetExtension(fileName);
+            switch (extension.ToLowerInvariant())
+            {
+                case ".dib":
+                case ".dotnet-interactive":
+                    return CodeSubmission.Read(stream, defaultLanguage, kernelLanguageAliases);
+                case ".ipynb":
+                    return Notebook.Read(stream, kernelLanguageAliases);
+                default:
+                    throw new NotSupportedException($"Unable to parse a interactive document of type '{extension}'");
+            }
+        }
+
+
+        private static void Write(string fileName, InteractiveDocument interactive, string newline, Stream stream)
+        {
+            var extension = Path.GetExtension(fileName);
+
+            switch (extension.ToLowerInvariant())
+            {
+                case ".dib":
+                case ".dotnet-interactive":
+                    CodeSubmission.Write(interactive, newline, stream);
+                    break;
+                case ".ipynb":
+                    Notebook.Write(interactive, newline, stream);
+                    break;
+                default:
+                    throw new NotSupportedException($"Unable to serialize a interactive document of type '{extension}'");
+            }
         }
     }
 }

@@ -4,8 +4,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.DotNet.Interactive.Formatting;
-using Microsoft.DotNet.Interactive.Notebook;
+using Microsoft.DotNet.Interactive.Documents.Jupyter;
 
 namespace Microsoft.DotNet.Interactive.Server
 {
@@ -22,6 +21,7 @@ namespace Microsoft.DotNet.Interactive.Server
             };
             JsonSerializerOptions.Converters.Add(new DataDictionaryConverter());
             JsonSerializerOptions.Converters.Add(new NotebookCellOutputConverter());
+            JsonSerializerOptions.Converters.Add(new FileSystemInfoJsonConverter());
         }
 
         public static JsonSerializerOptions JsonSerializerOptions { get; }

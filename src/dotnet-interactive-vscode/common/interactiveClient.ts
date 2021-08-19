@@ -23,15 +23,15 @@ import {
     KernelEventEnvelopeObserver,
     KernelEventType,
     KernelTransport,
-    NotebookDocument,
-    NotebookParsed,
-    NotebookParsedType,
-    NotebookSerialized,
-    NotebookSerializedType,
-    ParseNotebook,
-    ParseNotebookType,
-    SerializeNotebook,
-    SerializeNotebookType,
+    InteractiveDocument,
+    InteractiveDocumentParsed,
+    InteractiveDocumentParsedType,
+    InteractiveDocumentSerialized,
+    InteractiveDocumentSerializedType,
+    ParseInteractiveDocument,
+    ParseInteractiveDocumentType,
+    SerializeInteractiveDocument,
+    SerializeInteractiveDocumentType,
     RequestCompletions,
     RequestCompletionsType,
     RequestDiagnostics,
@@ -55,6 +55,8 @@ import { Eol } from './interfaces';
 import { clearDebounce, createOutput } from './utilities';
 
 import * as vscodeLike from './interfaces/vscode-like';
+import { CompositeKernel } from './interactive/compositeKernel';
+import { ProxyKernel } from './interactive/proxyKernel';
 
 export interface ErrorOutputCreator {
     (message: string, outputId?: string): vscodeLike.NotebookCellOutput;
@@ -71,9 +73,30 @@ export class InteractiveClient {
     private tokenEventObservers: Map<string, Array<KernelEventEnvelopeObserver>> = new Map<string, Array<KernelEventEnvelopeObserver>>();
     private deferredOutput: Array<vscodeLike.NotebookCellOutput> = [];
     private valueIdMap: Map<string, { idx: number, outputs: Array<vscodeLike.NotebookCellOutput>, observer: { (outputs: Array<vscodeLike.NotebookCellOutput>): void } }> = new Map<string, { idx: number, outputs: Array<vscodeLike.NotebookCellOutput>, observer: { (outputs: Array<vscodeLike.NotebookCellOutput>): void } }>();
+    private _kernel: CompositeKernel;
 
     constructor(readonly config: InteractiveClientConfiguration) {
         config.transport.subscribeToKernelEvents(eventEnvelope => this.eventListener(eventEnvelope));
+
+        this._kernel = new CompositeKernel("vscode");
+
+        const reverseProxy = new ProxyKernel('reverse-to-interactive-server', config.transport);
+        this._kernel.add(reverseProxy, ['csharp', 'fsharp', 'pwsh']);
+
+        config.transport.setCommandHandler(commandEnvelope => {
+            return this._kernel.send(commandEnvelope);
+        });
+        this._kernel.subscribeToKernelEvents((eEventEnvelope) => {
+            config.transport.publishKernelEvent(eEventEnvelope);
+        });
+    }
+
+    get kernel(): CompositeKernel {
+        return this._kernel;
+    }
+
+    get transport(): KernelTransport {
+        return this.config.transport;
     }
 
     public tryGetProperty<T>(propertyName: string): T | null {
@@ -84,25 +107,25 @@ export class InteractiveClient {
             return null;
         }
     }
-    async parseNotebook(fileName: string, rawData: Uint8Array, token?: string | undefined): Promise<NotebookDocument> {
-        const command: ParseNotebook = {
+    async parseNotebook(fileName: string, rawData: Uint8Array, token?: string | undefined): Promise<InteractiveDocument> {
+        const command: ParseInteractiveDocument = {
             fileName,
             rawData,
             targetKernelName: '.NET' // this command MUST be handled by the composite kernel
         };
-        const notebookParsed = await this.submitCommandAndGetResult<NotebookParsed>(command, ParseNotebookType, NotebookParsedType, token);
-        return notebookParsed.notebook;
+        const notebookParsed = await this.submitCommandAndGetResult<InteractiveDocumentParsed>(command, ParseInteractiveDocumentType, InteractiveDocumentParsedType, token);
+        return notebookParsed.document;
     }
 
-    async serializeNotebook(fileName: string, notebook: NotebookDocument, eol: Eol, token?: string | undefined): Promise<Uint8Array> {
-        const command: SerializeNotebook = {
+    async serializeNotebook(fileName: string, document: InteractiveDocument, eol: Eol, token?: string | undefined): Promise<Uint8Array> {
+        const command: SerializeInteractiveDocument = {
             fileName,
-            notebook,
+            document,
             newLine: eol,
             targetKernelName: '.NET' // this command MUST be handled by the composite kernel
         };
-        const serializedNotebook = await this.submitCommandAndGetResult<NotebookSerialized>(command, SerializeNotebookType, NotebookSerializedType, token);
-        return serializedNotebook.rawData;
+        const serializedInteractiveDocument = await this.submitCommandAndGetResult<InteractiveDocumentSerialized>(command, SerializeInteractiveDocumentType, InteractiveDocumentSerializedType, token);
+        return serializedInteractiveDocument.rawData;
     }
 
     private clearExistingLanguageServiceRequests(requestId: string) {
@@ -130,6 +153,7 @@ export class InteractiveClient {
             };
 
             let failureReported = false;
+            const commandToken = configuration?.token ? configuration.token : this.getNextToken();
 
             return this.submitCode(source, language, eventEnvelope => {
                 if (this.deferredOutput.length > 0) {
@@ -140,7 +164,10 @@ export class InteractiveClient {
                 switch (eventEnvelope.eventType) {
                     // if kernel languages were added, handle those events here
                     case CommandSucceededType:
-                        resolve();
+                        if (eventEnvelope.command?.token === commandToken) {
+                            // only complete this promise if it's the root command
+                            resolve();
+                        }
                         break;
                     case CommandFailedType:
                         {
@@ -149,7 +176,10 @@ export class InteractiveClient {
                             outputs.push(errorOutput);
                             reportOutputs();
                             failureReported = true;
-                            reject(err);
+                            if (eventEnvelope.command?.token === commandToken) {
+                                // only complete this promise if it's the root command
+                                reject(err);
+                            }
                         }
                         break;
                     case DiagnosticsProducedType:
@@ -163,7 +193,8 @@ export class InteractiveClient {
                     case StandardOutputValueProducedType:
                         {
                             let disp = <DisplayEvent>eventEnvelope.event;
-                            let output = this.displayEventToCellOutput(disp);
+                            const stream = eventEnvelope.eventType === StandardErrorValueProducedType ? 'stderr' : 'stdout';
+                            let output = this.displayEventToCellOutput(disp, stream);
                             outputs.push(output);
                             reportOutputs();
                         }
@@ -201,7 +232,7 @@ export class InteractiveClient {
                         }
                         break;
                 }
-            }, configuration?.token).catch(e => {
+            }, commandToken).catch(e => {
                 // only report a failure if it's not a `CommandFailed` event from above (which has already called `reject()`)
                 if (!failureReported) {
                     const errorMessage = typeof e?.message === 'string' ? <string>e.message : '' + e;
@@ -286,33 +317,35 @@ export class InteractiveClient {
             let handled = false;
             token = token || this.getNextToken();
             let disposable = this.subscribeToKernelTokenEvents(token, eventEnvelope => {
-                switch (eventEnvelope.eventType) {
-                    case CommandFailedType:
-                        if (!handled) {
-                            handled = true;
-                            disposable.dispose();
-                            let err = <CommandFailed>eventEnvelope.event;
-                            reject(err);
-                        }
-                        break;
-                    case CommandSucceededType:
-                        if (!handled) {
-                            handled = true;
-                            disposable.dispose();
-                            reject('Command was handled before reporting expected result.');
-                        }
-                        break;
-                    default:
-                        if (eventEnvelope.eventType === expectedEventType) {
-                            handled = true;
-                            disposable.dispose();
-                            let event = <TEvent>eventEnvelope.event;
-                            resolve(event);
-                        }
-                        break;
+                if (eventEnvelope.command?.token === token) {
+                    switch (eventEnvelope.eventType) {
+                        case CommandFailedType:
+                            if (!handled) {
+                                handled = true;
+                                disposable.dispose();
+                                let err = <CommandFailed>eventEnvelope.event;
+                                reject(err);
+                            }
+                            break;
+                        case CommandSucceededType:
+                            if (!handled) {
+                                handled = true;
+                                disposable.dispose();
+                                reject('Command was handled before reporting expected result.');
+                            }
+                            break;
+                        default:
+                            if (eventEnvelope.eventType === expectedEventType) {
+                                handled = true;
+                                disposable.dispose();
+                                let event = <TEvent>eventEnvelope.event;
+                                resolve(event);
+                            }
+                            break;
+                    }
                 }
             });
-            await this.config.transport.submitCommand(command, commandType, token);
+            await this.config.transport.submitCommand({ command, commandType, token });
         });
     }
 
@@ -324,19 +357,23 @@ export class InteractiveClient {
                 switch (eventEnvelope.eventType) {
                     case CommandFailedType:
                         let err = <CommandFailed>eventEnvelope.event;
-                        disposable.dispose();
                         failureReported = true;
-                        reject(err);
+                        if (eventEnvelope.command?.token === token) {
+                            disposable.dispose();
+                            reject(err);
+                        }
                         break;
                     case CommandSucceededType:
-                        disposable.dispose();
-                        resolve();
+                        if (eventEnvelope.command?.token === token) {
+                            disposable.dispose();
+                            resolve();
+                        }
                         break;
                     default:
                         break;
                 }
             });
-            this.config.transport.submitCommand(command, commandType, token).catch(e => {
+            this.config.transport.submitCommand({ command, commandType, token }).catch(e => {
                 // only report a failure if it's not a `CommandFailed` event from above (which has already called `reject()`)
                 if (!failureReported) {
                     reject(e);
@@ -371,12 +408,7 @@ export class InteractiveClient {
     private eventListener(eventEnvelope: KernelEventEnvelope) {
         let token = eventEnvelope.command?.token;
         if (token) {
-            let listeners = this.tokenEventObservers.get(token);
-            if (listeners) {
-                for (let listener of listeners) {
-                    listener(eventEnvelope);
-                }
-            } else if (token.startsWith("deferredCommand::")) {
+            if (token.startsWith("deferredCommand::")) {
                 switch (eventEnvelope.eventType) {
                     case DisplayedValueProducedType:
                     case DisplayedValueUpdatedType:
@@ -386,20 +418,35 @@ export class InteractiveClient {
                         this.deferredOutput.push(output);
                         break;
                 }
+            } else {
+                const tokenParts = token.split('/');
+                for (let i = tokenParts.length; i >= 1; i--) {
+                    const candidateToken = tokenParts.slice(0, i).join('/');
+                    let listeners = this.tokenEventObservers.get(candidateToken);
+                    if (listeners) {
+                        for (let listener of listeners) {
+                            listener(eventEnvelope);
+                        }
+                    }
+                }
             }
         }
     }
 
-    private displayEventToCellOutput(disp: DisplayEvent): vscodeLike.NotebookCellOutput {
+    private displayEventToCellOutput(disp: DisplayEvent, stream?: 'stdout' | 'stderr'): vscodeLike.NotebookCellOutput {
         const encoder = new TextEncoder();
         let outputItems: Array<vscodeLike.NotebookCellOutputItem> = [];
         if (disp.formattedValues && disp.formattedValues.length > 0) {
             for (let formatted of disp.formattedValues) {
                 let data = encoder.encode(formatted.value);
-                outputItems.push({
+                const outputItem: vscodeLike.NotebookCellOutputItem = {
                     mime: formatted.mimeType,
-                    data,
-                });
+                    data
+                };
+                if (stream) {
+                    outputItem.stream = stream;
+                }
+                outputItems.push(outputItem);
             }
         }
 
