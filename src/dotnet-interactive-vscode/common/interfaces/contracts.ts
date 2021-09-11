@@ -17,6 +17,8 @@ export const RequestCompletionsType = "RequestCompletions";
 export const RequestDiagnosticsType = "RequestDiagnostics";
 export const RequestHoverTextType = "RequestHoverText";
 export const RequestSignatureHelpType = "RequestSignatureHelp";
+export const RequestValueType = "RequestValue";
+export const RequestValueInfosType = "RequestValueInfos";
 export const SendEditableCodeType = "SendEditableCode";
 export const SerializeInteractiveDocumentType = "SerializeInteractiveDocument";
 export const SubmitCodeType = "SubmitCode";
@@ -35,6 +37,8 @@ export type KernelCommandType =
     | typeof RequestDiagnosticsType
     | typeof RequestHoverTextType
     | typeof RequestSignatureHelpType
+    | typeof RequestValueType
+    | typeof RequestValueInfosType
     | typeof SendEditableCodeType
     | typeof SerializeInteractiveDocumentType
     | typeof SubmitCodeType
@@ -93,6 +97,14 @@ export interface RequestHoverText extends LanguageServiceCommand {
 }
 
 export interface RequestSignatureHelp extends LanguageServiceCommand {
+}
+
+export interface RequestValue extends KernelCommand {
+    name: string;
+    mimeType: string;
+}
+
+export interface RequestValueInfos extends KernelCommand {
 }
 
 export interface SendEditableCode extends KernelCommand {
@@ -160,6 +172,8 @@ export const ReturnValueProducedType = "ReturnValueProduced";
 export const SignatureHelpProducedType = "SignatureHelpProduced";
 export const StandardErrorValueProducedType = "StandardErrorValueProduced";
 export const StandardOutputValueProducedType = "StandardOutputValueProduced";
+export const ValueInfosProducedType = "ValueInfosProduced";
+export const ValueProducedType = "ValueProduced";
 export const WorkingDirectoryChangedType = "WorkingDirectoryChanged";
 
 export type KernelEventType =
@@ -185,6 +199,8 @@ export type KernelEventType =
     | typeof SignatureHelpProducedType
     | typeof StandardErrorValueProducedType
     | typeof StandardOutputValueProducedType
+    | typeof ValueInfosProducedType
+    | typeof ValueProducedType
     | typeof WorkingDirectoryChangedType;
 
 export interface CodeSubmissionReceived extends KernelEvent {
@@ -279,6 +295,15 @@ export interface StandardErrorValueProduced extends DisplayEvent {
 export interface StandardOutputValueProduced extends DisplayEvent {
 }
 
+export interface ValueInfosProduced extends KernelEvent {
+    valueInfos: Array<KernelValueInfo>;
+}
+
+export interface ValueProduced extends KernelEvent {
+    name: string;
+    formattedValue: FormattedValue;
+}
+
 export interface WorkingDirectoryChanged extends KernelEvent {
     workingDirectory: string;
 }
@@ -331,6 +356,10 @@ export interface InteractiveDocumentElement {
     language: string;
     contents: string;
     outputs: Array<InteractiveDocumentOutputElement>;
+}
+
+export interface KernelValueInfo {
+    name: string;
 }
 
 export interface PackageReference {

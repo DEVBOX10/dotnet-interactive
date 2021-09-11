@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -465,6 +466,49 @@ Console.WriteLine(d);
             public Task SendAsync(KernelEvent kernelEvent, CancellationToken cancellationToken)
             {
                 throw new NotImplementedException();
+            }
+        }
+
+        private class RecordingKernelCommandAndEventSender : IKernelCommandAndEventSender
+        {
+            private Action<CommandOrEvent> _onSend;
+            public List<KernelCommand> Commands { get; } = new();
+            public List<KernelEvent> Events { get; } = new();
+            public Task SendAsync(KernelCommand kernelCommand, CancellationToken cancellationToken)
+            {
+                Commands.Add(kernelCommand);
+                _onSend?.Invoke(new CommandOrEvent(kernelCommand));
+                return Task.CompletedTask;
+            }
+
+            public Task SendAsync(KernelEvent kernelEvent, CancellationToken cancellationToken)
+            {
+                Events.Add(kernelEvent);
+                _onSend?.Invoke(new CommandOrEvent(kernelEvent));
+                return Task.CompletedTask;
+            }
+
+            public void OnSend(Action<CommandOrEvent> onSend)
+            {
+                _onSend = onSend;
+            }
+        }
+
+        private class BlockingCommandAndEventReceiver : IKernelCommandAndEventReceiver
+        {
+            private readonly BlockingCollection<CommandOrEvent> _commandsOrEvents;
+
+            public BlockingCommandAndEventReceiver()
+            {
+                _commandsOrEvents = new BlockingCollection<CommandOrEvent>();
+            }
+            public void Write(CommandOrEvent commandOrEvent)
+            {
+                _commandsOrEvents.Add(commandOrEvent);
+            }
+            public IAsyncEnumerable<CommandOrEvent> CommandsOrEventsAsync(CancellationToken cancellationToken)
+            {
+                return _commandsOrEvents.GetConsumingEnumerable(cancellationToken).ToAsyncEnumerable();
             }
         }
     }

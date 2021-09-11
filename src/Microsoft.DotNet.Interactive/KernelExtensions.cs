@@ -2,11 +2,13 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using System.Diagnostics;
 using System.Linq;
+using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.DotNet.Interactive.Commands;
@@ -151,8 +153,8 @@ namespace Microsoft.DotNet.Interactive
             return kernel;
         }
 
-        public static T UseDotNetVariableSharing<T>(this T kernel)
-            where T : DotNetKernel
+        public static T UseValueSharing<T>(this T kernel)
+            where T : Kernel, ISupportGetValue
         {
             var variableNameArg = new Argument<string>(
                 "name",
@@ -163,8 +165,8 @@ namespace Microsoft.DotNet.Interactive
                 if (kernel.ParentKernel is { } composite)
                 {
                     return composite.ChildKernels
-                                    .OfType<DotNetKernel>()
-                                    .SelectMany(k => k.GetVariableNames());
+                                    .OfType<ISupportGetValue>()
+                                    .SelectMany(k => k.GetValueInfos().Select(vd => vd.Name)).ToArray();
                 }
 
                 return Array.Empty<string>();
@@ -179,7 +181,7 @@ namespace Microsoft.DotNet.Interactive
                 if (kernel.ParentKernel is { } composite)
                 {
                     return composite.ChildKernels
-                                    .OfType<DotNetKernel>()
+                                    .Where(k => k is ISupportGetValue)
                                     .Select(k => k.Name);
                 }
 
@@ -194,11 +196,11 @@ namespace Microsoft.DotNet.Interactive
 
             share.Handler = CommandHandler.Create<string, string, KernelInvocationContext>(async (from, name, context) =>
             {
-                if (kernel.FindKernel(from) is DotNetKernel fromKernel)
+                if (kernel.FindKernel(from) is ISupportGetValue fromKernel)
                 {
-                    if (fromKernel.TryGetVariable(name, out object shared))
+                    if (fromKernel.TryGetValue(name, out object shared))
                     {
-                        await kernel.SetVariableAsync(name, shared);
+                        await ((ISupportSetValue)kernel).SetValueAsync(name, shared);
                     }
                 }
             });
@@ -209,64 +211,83 @@ namespace Microsoft.DotNet.Interactive
         }
 
         public static TKernel UseWho<TKernel>(this TKernel kernel)
-            where TKernel : DotNetKernel
+            where TKernel : Kernel, ISupportGetValue
         {
-            kernel.AddDirective(who_and_whos());
+            kernel.AddDirective(who());
+            kernel.AddDirective(whos());
             Formatter.Register(new CurrentVariablesFormatter());
             return kernel;
         }
 
-        private static Command who_and_whos()
+        private static Command who()
         {
-            var command = new Command("#!whos", "Display the names of the current top-level variables and their values.")
+            var command = new Command("#!who", "Display the names of the current top-level variables.")
             {
-                Handler = CommandHandler.Create((ParseResult parseResult, KernelInvocationContext context) =>
+                Handler = CommandHandler.Create(async (ParseResult parseResult, KernelInvocationContext context) =>
                 {
-                    var alias = parseResult.CommandResult.Token.Value;
-
-                    var detailed = alias == "#!whos";
-
-                    Display(context, detailed);
-
-                    return Task.CompletedTask;
+                    await DisplayValues(context, false);
                 })
             };
 
-            // TODO: (who_and_whos) this should be a separate command with separate help
-            command.AddAlias("#!who");
+            return command;
+        }
+
+        private static Command whos()
+        {
+            var command = new Command("#!whos", "Display the names of the current top-level variables and their values.")
+            {
+                Handler = CommandHandler.Create(async (ParseResult parseResult, KernelInvocationContext context) =>
+                {
+                    await  DisplayValues(context, true);
+                })
+            };
 
             return command;
+        }
 
-            void Display(KernelInvocationContext context, bool detailed)
+        private static async Task DisplayValues(KernelInvocationContext context, bool detailed)
+        {
+            if (context.Command is SubmitCode &&
+                context.HandlingKernel is ISupportGetValue)
             {
-                if (context.Command is SubmitCode &&
-                    context.HandlingKernel is DotNetKernel kernel)
+                var nameEvents = new List<ValueInfosProduced>();
+
+                var result = await context.HandlingKernel.SendAsync(new RequestValueInfos(context.Command.TargetKernelName));
+                using var _ = result.KernelEvents.OfType<ValueInfosProduced>().Subscribe(e => nameEvents.Add(e));
+
+                var valueNames = nameEvents.SelectMany(e => e.ValueInfos.Select(d => d.Name)).Distinct();
+
+                var valueEvents = new List<ValueProduced>();
+                var valueCommands = valueNames.Select(valueName => new RequestValue(valueName, context.HandlingKernel.Name));
+
+
+
+                foreach (var valueCommand in valueCommands)
                 {
-                    var variables = kernel.GetVariableNames()
-                                          .Select(name =>
-                                          {
-                                              kernel.TryGetVariable(name, out object v);
-                                              return new CurrentVariable(name, v.GetType(), v);
-                                          });
-
-                    var currentVariables = new CurrentVariables(
-                        variables,
-                        detailed);
-
-                    var html = currentVariables
-                        .ToDisplayString(HtmlFormatter.MimeType);
-
-                    context.Publish(
-                        new DisplayedValueProduced(
-                            html,
-                            context.Command,
-                            new[]
-                            {
-                                new FormattedValue(
-                                    HtmlFormatter.MimeType,
-                                    html)
-                            }));
+                    result = await context.HandlingKernel.SendAsync(valueCommand);
+                    using var __ = result.KernelEvents.OfType<ValueProduced>().Subscribe(e => valueEvents.Add(e));
                 }
+
+
+                var kernelValues = valueEvents.Select(e => new KernelValue( new KernelValueInfo( e.Name, e.Value.GetType()), e.Value, context.HandlingKernel.Name));
+
+                var currentVariables = new KernelValues(
+                    kernelValues,
+                    detailed);
+
+                var html = currentVariables
+                    .ToDisplayString(HtmlFormatter.MimeType);
+
+                context.Publish(
+                    new DisplayedValueProduced(
+                        html,
+                        context.Command,
+                        new[]
+                        {
+                            new FormattedValue(
+                                HtmlFormatter.MimeType,
+                                html)
+                        }));
             }
         }
 

@@ -5,6 +5,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
+using System.Runtime.Serialization;
 using System.Text.Json;
 using Microsoft.DotNet.Interactive.Commands;
 
@@ -68,7 +70,9 @@ namespace Microsoft.DotNet.Interactive.Server
                 [nameof(SubmitCode)] = typeof(KernelCommandEnvelope<SubmitCode>),
                 [nameof(UpdateDisplayedValue)] = typeof(KernelCommandEnvelope<UpdateDisplayedValue>),
                 [nameof(Quit)] = typeof(KernelCommandEnvelope<Quit>),
-                [nameof(Cancel)] = typeof(KernelCommandEnvelope<Cancel>)
+                [nameof(Cancel)] = typeof(KernelCommandEnvelope<Cancel>),
+                [nameof(RequestValue)] = typeof(KernelCommandEnvelope<RequestValue>),
+                [nameof(RequestValueInfos)] = typeof(KernelCommandEnvelope<RequestValueInfos>)
             };
 
             _commandTypesByCommandTypeName = new ConcurrentDictionary<string, Type>(_envelopeTypesByCommandTypeName
@@ -83,7 +87,9 @@ namespace Microsoft.DotNet.Interactive.Server
                 command.GetType(),
                 commandType =>
                 {
-                    var genericType = _envelopeTypesByCommandTypeName[command.GetType().Name];
+                    var type = command.GetType();
+
+                    var genericType = _envelopeTypesByCommandTypeName[type.Name];
 
                     var constructor = genericType.GetConstructors().Single();
 

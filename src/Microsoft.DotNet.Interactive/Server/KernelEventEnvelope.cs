@@ -17,7 +17,7 @@ namespace Microsoft.DotNet.Interactive.Server
     public abstract class KernelEventEnvelope : IKernelEventEnvelope
     {
         private static readonly ConcurrentDictionary<Type, Func<KernelEvent, IKernelEventEnvelope>> _envelopeFactories =
-            new ConcurrentDictionary<Type, Func<KernelEvent, IKernelEventEnvelope>>();
+            new();
 
         private static Dictionary<string, Type> _envelopeTypesByEventTypeName;
 
@@ -76,6 +76,8 @@ namespace Microsoft.DotNet.Interactive.Server
                 [nameof(StandardOutputValueProduced)] = typeof(KernelEventEnvelope<StandardOutputValueProduced>),
                 [nameof(WorkingDirectoryChanged)] = typeof(KernelEventEnvelope<WorkingDirectoryChanged>),
                 [nameof(KernelExtensionLoaded)] = typeof(KernelEventEnvelope<KernelExtensionLoaded>),
+                [nameof(ValueInfosProduced)] = typeof(KernelEventEnvelope<ValueInfosProduced>),
+                [nameof(ValueProduced)] = typeof(KernelEventEnvelope<ValueProduced>)
             };
 
             _eventTypesByEventTypeName = _envelopeTypesByEventTypeName

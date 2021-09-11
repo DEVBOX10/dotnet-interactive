@@ -22,7 +22,6 @@ namespace Microsoft.DotNet.Interactive.Tests.Notebook
 
         [Theory]
         [InlineData("interactive.dib")]
-        [InlineData("interactive.dotnet-interactive")]
         public async Task composite_kernel_can_parse_interactive_documents(string fileName)
         {
             using var kernel = CreateCompositeKernel();
@@ -47,6 +46,35 @@ var x = 1;
                 .Contents
                 .Should()
                 .Be("var x = 1;");
+        }
+
+        [Fact]
+        public async Task composite_kernel_excludes_parent_dotNET_kernel_from_acceptable_cell_language_splitters_in_dib()
+        {
+            using var kernel = CreateCompositeKernel();
+
+            // the composite kernel calls itself ".NET" but we don't want to allow splitting cells on that language; instead we
+            // want `#!.NET` to be considered a magic command in whatever the current cell is
+            var notebookText = @"
+#!.NET
+var x = 1;
+";
+            var notebookBytes = Encoding.UTF8.GetBytes(notebookText);
+
+            await kernel.SendAsync(new ParseInteractiveDocument("notebook.dib", notebookBytes, ".NET"));
+
+            KernelEvents
+                .Should()
+                .ContainSingle<InteractiveDocumentParsed>()
+                .Which
+                .Document
+                .Elements
+                .Should()
+                .ContainSingle()
+                .Which
+                .Contents
+                .Should()
+                .Be("#!.NET\nvar x = 1;");
         }
 
         [Fact]
@@ -109,12 +137,11 @@ var x = 1;
 
         [Theory]
         [InlineData("interactive.dib")]
-        [InlineData("interactive.dotnet-interactive")]
         public async Task composite_kernel_can_serialize_notebooks(string fileName)
         {
             using var kernel = CreateCompositeKernel();
 
-            var notebook = new Documents.InteractiveDocument(new[]
+            var notebook = new InteractiveDocument(new[]
             {
                 new InteractiveDocumentElement("csharp", "var x = 1;")
             });

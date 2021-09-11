@@ -9,7 +9,6 @@ using System.CommandLine.Parsing;
 using System.Linq;
 using System.Reactive.Disposables;
 using System.Reactive.Subjects;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,6 +16,7 @@ using System.Threading.Tasks;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
+using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Parsing;
 using Microsoft.DotNet.Interactive.Server;
 
@@ -60,6 +60,18 @@ namespace Microsoft.DotNet.Interactive
             _disposables.Add(Disposable.Create(
                 () => _kernelEvents.OnCompleted()
                 ));
+
+            RegisterCommandHandlers();
+        }
+
+        private void RegisterCommandHandlers()
+        {
+            if (this is ISupportGetValue supportGetValuesKernel)
+            {
+                RegisterCommandHandler<RequestValueInfos>((command, context) => command.InvokeAsync(context));
+
+                RegisterCommandHandler<RequestValue>((command, context) => command.InvokeAsync(context));
+            }
         }
 
         internal KernelCommandPipeline Pipeline { get; }
@@ -139,7 +151,7 @@ namespace Microsoft.DotNet.Interactive
                 || command.LinePosition.Character < 0
                 || command.LinePosition.Character > lines[command.LinePosition.Line].Span.Length)
             {
-                context.Fail(message: $"The specified position {command.LinePosition}");
+                context.Fail(command, message: $"The specified position {command.LinePosition}");
                 commands = null;
                 return false;
             }
@@ -258,6 +270,8 @@ namespace Microsoft.DotNet.Interactive
                 throw new ArgumentNullException(nameof(command));
             }
 
+            command.ShouldPublishCompletionEvent ??= true;
+
             var context = KernelInvocationContext.Establish(command);
 
             // only subscribe for the root command 
@@ -310,7 +324,6 @@ namespace Microsoft.DotNet.Interactive
                                 {
                                     if (_countOfLanguageServiceCommandsInFlight > 0)
                                     {
-                                    
                                         context.CancelWithSuccess();
                                         return context.Result;
                                     }
@@ -330,7 +343,6 @@ namespace Microsoft.DotNet.Interactive
                             case RequestHoverText _:
                             case RequestCompletions _:
                             case RequestSignatureHelp _:
-                                // FIX: (SendAsync) 
                                 {
                                     if (_inFlightContext is { } inflight)
                                     {
@@ -369,7 +381,7 @@ namespace Microsoft.DotNet.Interactive
                 }
             }
 
-            return context.Result;
+            return context.ResultFor(command);
         }
 
         private async Task RunOnFastPath(KernelInvocationContext context,
@@ -427,14 +439,14 @@ namespace Microsoft.DotNet.Interactive
                 {
                     context.Complete(command);
                 }
-
-                return context.Result;
+                
+                return context.ResultFor(command);
             }
             catch (Exception exception)
             {
                 if (!context.IsComplete)
                 {
-                    context.Fail(exception);
+                    context.Fail(command, exception);
                 }
 
                 throw;
@@ -670,5 +682,10 @@ namespace Microsoft.DotNet.Interactive
         }
 
         internal ChooseKernelDirective ChooseKernelDirective => _chooseKernelDirective ??= CreateChooseKernelDirective();
+
+        public bool SupportsCommand<T>() where T : KernelCommand
+        {
+            return this is IKernelCommandHandler<T> || _dynamicHandlers.ContainsKey(typeof(T));
+        }
     }
 }

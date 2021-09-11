@@ -254,8 +254,8 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                     {
                         switch (k)
                         {
-                            case DotNetKernel dk:
-                                await dk.UseJupyterHelpersAsync();
+                            case ISupportSetValue svk:
+                                await svk.UseJupyterHelpersAsync();
                                 break;
                         }
                     });
@@ -423,8 +423,8 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                                 {
                                     switch (k)
                                     {
-                                        case DotNetKernel dk:
-                                            await dk.UseVSCodeHelpersAsync(kernel);
+                                        case ISupportSetValue svk:
+                                            await svk.UseVSCodeHelpersAsync(kernel);
                                             break;
                                     }
                                 });
@@ -522,7 +522,7 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                     .UseJupyterHelpers()
                     .UseWho()
                     .UseMathAndLaTeX()
-                    .UseDotNetVariableSharing()
+                    .UseValueSharing()
                     .UseAspNetCore(),
                 new[] { "c#", "C#" });
 
@@ -534,14 +534,14 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                     .UseWho()
                     .UseDefaultNamespaces()
                     .UseMathAndLaTeX()
-                    .UseDotNetVariableSharing(),
+                    .UseValueSharing(),
                 new[] { "f#", "F#" });
 
             compositeKernel.Add(
                 new PowerShellKernel()
                     .UseJupyterHelpers()
                     .UseProfiles()
-                    .UseDotNetVariableSharing(),
+                    .UseValueSharing(),
                 new[] { "powershell" });
 
 
