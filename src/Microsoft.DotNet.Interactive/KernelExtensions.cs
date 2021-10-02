@@ -291,10 +291,10 @@ namespace Microsoft.DotNet.Interactive
             }
         }
 
-        public static CompositeKernel UseKernelClientConnection<TOptions>(
+        public static CompositeKernel UseKernelClientConnection<TConnector>(
             this CompositeKernel kernel,
-            ConnectKernelCommand<TOptions> command)
-            where TOptions : KernelConnectionOptions
+            ConnectKernelCommand<TConnector> command)
+            where TConnector : KernelConnector
         {
             kernel.AddKernelConnection(command);
 
@@ -362,17 +362,9 @@ namespace Microsoft.DotNet.Interactive
                 throw new ArgumentNullException(nameof(onVisit));
             }
 
-            if (kernel is CompositeKernel compositeKernel)
+            foreach (var subKernel in kernel.Subkernels(recursive))
             {
-                foreach (var subKernel in compositeKernel.ChildKernels)
-                {
-                    onVisit(subKernel);
-
-                    if (recursive)
-                    {
-                        subKernel.VisitSubkernels(onVisit, recursive: true);
-                    }
-                }
+                onVisit(subKernel);
             }
         }
 
@@ -381,9 +373,20 @@ namespace Microsoft.DotNet.Interactive
             Action<Kernel> onVisit,
             bool recursive = false)
         {
-            onVisit(kernel);
+            if (kernel is null)
+            {
+                throw new ArgumentNullException(nameof(kernel));
+            }
 
-            VisitSubkernels(kernel, onVisit, recursive);
+            if (onVisit is null)
+            {
+                throw new ArgumentNullException(nameof(onVisit));
+            }
+
+            foreach (var k in kernel.SubkernelsAndSelf(recursive))
+            {
+                onVisit(k);
+            }
         }
 
         public static async Task VisitSubkernelsAsync(
@@ -401,17 +404,9 @@ namespace Microsoft.DotNet.Interactive
                 throw new ArgumentNullException(nameof(onVisit));
             }
 
-            if (kernel is CompositeKernel compositeKernel)
+            foreach (var subKernel in kernel.Subkernels(recursive))
             {
-                foreach (var subKernel in compositeKernel.ChildKernels)
-                {
-                    await onVisit(subKernel);
-
-                    if (recursive)
-                    {
-                        await subKernel.VisitSubkernelsAsync(onVisit, true);
-                    }
-                }
+                await onVisit(subKernel);
             }
         }
 
@@ -420,9 +415,65 @@ namespace Microsoft.DotNet.Interactive
             Func<Kernel, Task> onVisit,
             bool recursive = false)
         {
-            await onVisit(kernel);
+            if (kernel is null)
+            {
+                throw new ArgumentNullException(nameof(kernel));
+            }
 
-            await VisitSubkernelsAsync(kernel, onVisit, recursive);
+            if (onVisit is null)
+            {
+                throw new ArgumentNullException(nameof(onVisit));
+            }
+
+            foreach (var k in kernel.SubkernelsAndSelf(recursive))
+            {
+                await onVisit(k);
+            }
+        }
+
+        public static IEnumerable<Kernel> SubkernelsAndSelf(
+            this Kernel kernel,
+            bool recursive = false)
+        {
+            yield return kernel;
+
+            if (kernel is CompositeKernel compositeKernel)
+            {
+                foreach (var subKernel in compositeKernel.ChildKernels)
+                {
+                    if (recursive)
+                    {
+                        foreach (var recursiveVisit in subKernel.SubkernelsAndSelf(recursive))
+                        {
+                            yield return recursiveVisit;
+                        }
+                    }
+                    else
+                    {
+                        yield return subKernel;
+                    }
+                }
+            }
+        }
+
+        public static IEnumerable<Kernel> Subkernels(
+            this Kernel kernel,
+            bool recursive = false)
+        {
+            if (kernel is CompositeKernel compositeKernel)
+            {
+                foreach (var subKernel in compositeKernel.ChildKernels)
+                {
+                    yield return subKernel;
+                    if (recursive)
+                    {
+                        foreach (var recursiveVisit in subKernel.Subkernels(recursive))
+                        {
+                            yield return recursiveVisit;
+                        }
+                    }
+                }
+            }
         }
     }
 }

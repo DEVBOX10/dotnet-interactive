@@ -13,9 +13,7 @@ namespace Microsoft.DotNet.Interactive.Commands
         protected KernelCommand(string targetKernelName = null, KernelCommand parent = null)
         {
             Properties = new Dictionary<string, object>(StringComparer.InvariantCultureIgnoreCase);
-
             TargetKernelName = targetKernelName;
-
             Parent = parent;
         }
 

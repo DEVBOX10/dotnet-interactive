@@ -4,6 +4,8 @@
 using System;
 using System.Threading.Tasks;
 using FluentAssertions;
+using FluentAssertions.Extensions;
+using Markdig.Extensions.TaskLists;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Tests.Utility;
@@ -70,13 +72,43 @@ while(!KernelInvocationContext.Current.CancellationToken.IsCancellationRequested
 
             var cancelCommand = new Cancel();
 
-            await kernel.SendAsync(cancelCommand);
+            var results = await kernel.SendAsync(cancelCommand);
 
-            KernelEvents
+            results.KernelEvents.ToSubscribedList()
                 .Should()
                 .ContainSingle<CommandSucceeded>(c => c.Command == cancelCommand);
         }
      
+        [Fact]
+        public async Task when_cancelling_command_it_reports_what_command_was_cancelled()
+        {
+            var kernel = CreateKernel();
+
+            var cancelCommand = new Cancel();
+
+            var commandToCancel = new SubmitCode(@"
+using Microsoft.DotNet.Interactive;
+var cancellationToken = KernelInvocationContext.Current.CancellationToken;
+while(!cancellationToken.IsCancellationRequested){ 
+    await Task.Delay(10); 
+}", targetKernelName: "csharp");
+            
+            var resultForCommandToCancel = kernel.SendAsync(commandToCancel);
+
+            var result = await kernel.SendAsync(cancelCommand);
+
+            var cancellationEvents = result.KernelEvents.ToSubscribedList();
+
+            await resultForCommandToCancel;
+
+            cancellationEvents.Should()
+                .ContainSingle<CommandCancelled>()
+                .Which
+                .CancelledCommand
+                .Should()
+                .Be(commandToCancel);
+        }
+
         [Fact]
         public async Task can_cancel_user_loop_using_CancellationToken()
         {
@@ -86,18 +118,25 @@ while(!KernelInvocationContext.Current.CancellationToken.IsCancellationRequested
 
             var commandToCancel = new SubmitCode(@"
 using Microsoft.DotNet.Interactive;
+var cancellationToken = KernelInvocationContext.Current.CancellationToken;
+while(!cancellationToken.IsCancellationRequested){ 
+    await Task.Delay(10); 
+}", targetKernelName: "csharp");
 
-while(!KernelInvocationContext.Current.CancellationToken.IsCancellationRequested){ await Task.Delay(10); }", targetKernelName: "csharp");
-            
             var resultForCommandToCancel = kernel.SendAsync(commandToCancel);
 
-            await kernel.SendAsync(cancelCommand);
+            await kernel.SendAsync(cancelCommand);            
 
-            await resultForCommandToCancel;
+            var result = await resultForCommandToCancel;
 
-            KernelEvents
+            var submitCodeEvents = result.KernelEvents.ToSubscribedList();
+            
+            submitCodeEvents.Should()
+                .ContainSingle<CommandFailed>()
+                .Which
+                .Command
                 .Should()
-                .ContainSingle<CommandFailed>(c => c.Command == commandToCancel);
+                .Be(commandToCancel);
         }
 
         [Fact]

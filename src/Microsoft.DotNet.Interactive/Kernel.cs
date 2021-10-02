@@ -16,7 +16,6 @@ using System.Threading.Tasks;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
-using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Parsing;
 using Microsoft.DotNet.Interactive.Server;
 
@@ -37,6 +36,7 @@ namespace Microsoft.DotNet.Interactive
         private readonly SemaphoreSlim _fastPathSchedulerLock = new(1);
         private KernelInvocationContext _inFlightContext;
         private int _countOfLanguageServiceCommandsInFlight = 0;
+        private KernelName _name;
 
         protected Kernel(string name)
         {
@@ -130,7 +130,7 @@ namespace Microsoft.DotNet.Interactive
                 }
 
                 if (command.Parent is null &&
-                    command != originalCommand)
+                    !CommandEqualityComparer.Instance.Equals(command, originalCommand))
                 {
                     command.Parent = originalCommand;
                 }
@@ -205,7 +205,11 @@ namespace Microsoft.DotNet.Interactive
 
         public IObservable<KernelEvent> KernelEvents => _kernelEvents;
 
-        public string Name { get; set; }
+        public string Name
+        {
+            get => _name.Name;
+            set => _name = new KernelName(value);
+        }
 
         internal KernelUri Uri =>
             ParentKernel is null
@@ -261,6 +265,17 @@ namespace Microsoft.DotNet.Interactive
             await command.InvokeAsync(context);
         }
 
+
+        protected internal virtual void DelegatePublication(KernelEvent kernelEvent)
+        {
+            if (kernelEvent is null)
+            {
+                throw new ArgumentNullException(nameof(kernelEvent));
+            }
+
+            PublishEvent(kernelEvent);
+        }
+
         public async Task<KernelCommandResult> SendAsync(
             KernelCommand command,
             CancellationToken cancellationToken)
@@ -275,7 +290,7 @@ namespace Microsoft.DotNet.Interactive
             var context = KernelInvocationContext.Establish(command);
 
             // only subscribe for the root command 
-            var currentCommandOwnsContext = context.Command == command;
+            var currentCommandOwnsContext = CommandEqualityComparer.Instance.Equals(context.Command, command);
 
             IDisposable disposable;
 
@@ -316,7 +331,10 @@ namespace Microsoft.DotNet.Interactive
                             case Cancel cancel:
                                 cancel.KernelUri = Uri;
                                 cancel.TargetKernelName = Name;
-                                Scheduler.CancelCurrentOperation();
+                                Scheduler.CancelCurrentOperation((inflight) =>
+                                {
+                                    context.Publish(new CommandCancelled(cancel, inflight));
+                                });
                                 await InvokePipelineAndCommandHandler(cancel);
                                 break;
 
@@ -435,7 +453,7 @@ namespace Microsoft.DotNet.Interactive
 
                 await Pipeline.SendAsync(command, context);
 
-                if (command != context.Command)
+                if (!CommandEqualityComparer.Instance.Equals(command, context.Command))
                 {
                     context.Complete(command);
                 }
@@ -607,15 +625,6 @@ namespace Microsoft.DotNet.Interactive
             {
                 switch (command, this)
                 {
-                    case (ParseInteractiveDocument parseNotebook, IKernelCommandHandler<ParseInteractiveDocument> parseNotebookHandler):
-                        SetHandler(parseNotebookHandler, parseNotebook);
-                        break;
-
-                    case (SerializeInteractiveDocument serializeNotebook, IKernelCommandHandler<SerializeInteractiveDocument>
-                        serializeNotebookHandler):
-                        SetHandler(serializeNotebookHandler, serializeNotebook);
-                        break;
-
                     case (SubmitCode submitCode, IKernelCommandHandler<SubmitCode> submitCodeHandler):
                         SetHandler(submitCodeHandler, submitCode);
                         break;
@@ -673,6 +682,9 @@ namespace Microsoft.DotNet.Interactive
         protected virtual void SetHandlingKernel(
             KernelCommand command,
             KernelInvocationContext context) => context.HandlingKernel = this;
+
+        protected virtual Kernel GetDestinationKernel(
+            KernelEvent @event) => this;
 
         public void Dispose() => _disposables.Dispose();
 

@@ -113,6 +113,17 @@
           ],
           "description": "Command and arguments used to start a notebook session."
         },
+        "dotnet-interactive.notebookParserArgs": {
+          "type": "array",
+          "default": [
+            "{dotnet_path}",
+            "tool",
+            "run",
+            "dotnet-interactive",
+            "--",
+            "notebook-parser"
+          ]
+        },
         "dotnet-interactive.kernelTransportWorkingDirectory": {
           "type": "string",
           "default": "{global_storage_path}",
@@ -135,7 +146,7 @@
         },
         "dotnet-interactive.minimumInteractiveToolVersion": {
           "type": "string",
-          "default": "1.0.245901",
+          "default": "1.0.246201",
           "description": "The minimum required version of the .NET Interactive tool."
         },
         "dotnet-interactive.logLevel": {
@@ -449,7 +460,7 @@
     "eslint": "6.8.0",
     "eslint-plugin-deprecation": "1.2.0",
     "glob": "7.1.6",
-    "mocha": "9.0.0",
+    "mocha": "9.1.2",
     "mocha-multi-reporters": "1.5.1",
     "mocha-trx-reporter": "3.3.1",
     "tmp": "0.2.1",

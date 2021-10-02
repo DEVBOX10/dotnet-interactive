@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Threading;
@@ -24,7 +23,7 @@ namespace Microsoft.DotNet.Interactive
 
         private readonly ReplaySubject<KernelEvent> _events = new();
 
-        private readonly ConcurrentDictionary<KernelCommand, ReplaySubject<KernelEvent>> _childCommands = new();
+        private readonly ConcurrentDictionary<KernelCommand, ReplaySubject<KernelEvent>> _childCommands = new (new CommandEqualityComparer());
 
         private readonly CompositeDisposable _disposables = new();
 
@@ -83,7 +82,7 @@ namespace Microsoft.DotNet.Interactive
         {
             var commandSucceeded = new CommandSucceeded(command);
 
-            if (command == Command)
+            if (CommandEqualityComparer.Instance.Equals(command, Command))
             {
                 Publish(commandSucceeded);
                 if (!_events.IsDisposed)
@@ -129,7 +128,7 @@ namespace Microsoft.DotNet.Interactive
             }
 
             if (command is { } &&
-                command != Command &&
+                !CommandEqualityComparer.Instance.Equals(command, Command) &&
                 command.ShouldPublishCompletionEvent == true)
             {
                 Publish(new CommandFailed(exception, command, message));
@@ -183,8 +182,13 @@ namespace Microsoft.DotNet.Interactive
             {
                 events.OnNext(@event);
             }
-            else if (Command == command)
+            else if (CommandEqualityComparer.Instance.Equals(Command, command))
             {
+                _events.OnNext(@event);
+            }
+            else if (string.Equals(Command.GetOrCreateToken(), command.GetOrCreateToken(), StringComparison.Ordinal))
+            {
+                // event from a sub-command that was remotely split
                 _events.OnNext(@event);
             }
         }
@@ -195,7 +199,7 @@ namespace Microsoft.DotNet.Interactive
 
         internal KernelCommandResult ResultFor(KernelCommand command)
         {
-            if (command == Command)
+            if (CommandEqualityComparer.Instance.Equals(command, Command))
             {
                 return Result;
             }
@@ -216,7 +220,7 @@ namespace Microsoft.DotNet.Interactive
             }
             else
             {
-                if (_current.Value.Command != command)
+                if (!CommandEqualityComparer.Instance.Equals(_current.Value.Command, command))
                 {
                     if (command.Parent is null)
                     {

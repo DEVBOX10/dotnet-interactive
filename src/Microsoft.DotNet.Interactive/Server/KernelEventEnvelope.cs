@@ -57,6 +57,7 @@ namespace Microsoft.DotNet.Interactive.Server
                 [nameof(CodeSubmissionReceived)] = typeof(KernelEventEnvelope<CodeSubmissionReceived>),
                 [nameof(CommandFailed)] = typeof(KernelEventEnvelope<CommandFailed>),
                 [nameof(CommandSucceeded)] = typeof(KernelEventEnvelope<CommandSucceeded>),
+                [nameof(CommandCancelled)] = typeof(KernelEventEnvelope<CommandCancelled>),
                 [nameof(CompleteCodeSubmissionReceived)] = typeof(KernelEventEnvelope<CompleteCodeSubmissionReceived>),
                 [nameof(CompletionsProduced)] = typeof(KernelEventEnvelope<CompletionsProduced>),
                 [nameof(DiagnosticLogEntryProduced)] = typeof(KernelEventEnvelope<DiagnosticLogEntryProduced>),
@@ -67,8 +68,6 @@ namespace Microsoft.DotNet.Interactive.Server
                 [nameof(IncompleteCodeSubmissionReceived)] = typeof(KernelEventEnvelope<IncompleteCodeSubmissionReceived>),
                 [nameof(HoverTextProduced)] = typeof(KernelEventEnvelope<HoverTextProduced>),
                 [nameof(KernelReady)] = typeof(KernelEventEnvelope<KernelReady>),
-                [nameof(InteractiveDocumentParsed)] = typeof(KernelEventEnvelope<InteractiveDocumentParsed>),
-                [nameof(InteractiveDocumentSerialized)] = typeof(KernelEventEnvelope<InteractiveDocumentSerialized>),
                 [nameof(PackageAdded)] = typeof(KernelEventEnvelope<PackageAdded>),
                 [nameof(ReturnValueProduced)] = typeof(KernelEventEnvelope<ReturnValueProduced>),
                 [nameof(SignatureHelpProduced)] = typeof(KernelEventEnvelope<SignatureHelpProduced>),
@@ -195,7 +194,8 @@ namespace Microsoft.DotNet.Interactive.Server
                 {
                     command = commandEnvelope.Command,
                     commandType = commandEnvelope.CommandType,
-                    token = eventEnvelope.Event.Command.GetToken()
+                    token = eventEnvelope.Event.Command.GetOrCreateToken(),
+                    id = commandEnvelope.CommandId
                 };
             }
 

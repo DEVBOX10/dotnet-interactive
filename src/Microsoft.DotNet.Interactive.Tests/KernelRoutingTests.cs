@@ -9,6 +9,7 @@ using FluentAssertions;
 using FluentAssertions.Execution;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Connection;
+using Microsoft.DotNet.Interactive.Documents;
 using Microsoft.DotNet.Interactive.Server;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Pocket;
@@ -53,7 +54,7 @@ namespace Microsoft.DotNet.Interactive.Tests
                         return Task.CompletedTask;
                     }
                 },
-            }.UseKernelClientConnection(new ConnectNamedPipe());
+            }.UseKernelClientConnection(new ConnectNamedPipeCommand());
 
             localCompositeKernel.DefaultKernelName = "pwsh";
 
@@ -105,6 +106,7 @@ x");
             hitRemoteCSharp.Should().BeTrue();
             hitRemoteFSharp.Should().BeFalse();
         }
+        
 
         [FactSkipLinux]
         public async Task proxyKernel_does_not_perform_split_if_all_parts_go_to_same_targetKernel_as_the_original_command()
@@ -131,13 +133,10 @@ x");
             var pipeName = Guid.NewGuid().ToString();
 
             StartServer(remoteCompositeKernel, pipeName);
-            var connection = new ConnectNamedPipe();
 
-            var proxyKernel = await connection.CreateKernelAsync(new NamedPipeConnectionOptions
-            {
-                KernelName = "proxyKernel",
-                PipeName = pipeName
-            }, null);
+            var connection = new NamedPipeKernelConnector(pipeName);
+
+            var proxyKernel = await connection.ConnectKernelAsync(new KernelName("proxyKernel"));
             
             var code = @"#i ""nuget:source1""
 #i ""nuget:source2""
@@ -160,7 +159,6 @@ Console.WriteLine(1);";
             var handledCommands = new List<KernelCommand>();
             using var remoteCompositeKernel = new CompositeKernel
             {
-
                 new FakeKernel("csharp")
                 {
                     Handle = (command, _) =>
@@ -179,13 +177,10 @@ Console.WriteLine(1);";
             var pipeName = Guid.NewGuid().ToString();
 
             StartServer(remoteCompositeKernel, pipeName);
-            var connection = new ConnectNamedPipe();
 
-            var proxyKernel = await connection.CreateKernelAsync(new NamedPipeConnectionOptions
-            {
-                KernelName = "proxyKernel",
-                PipeName = pipeName
-            }, null);
+            var connection = new NamedPipeKernelConnector(pipeName);
+
+            var proxyKernel = await connection.ConnectKernelAsync(new KernelName("proxyKernel"));
 
             var code = @"#i ""nuget:source1""
 #i ""nuget:source2""
