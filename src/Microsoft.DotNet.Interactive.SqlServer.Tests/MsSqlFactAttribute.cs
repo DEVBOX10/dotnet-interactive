@@ -7,17 +7,17 @@ using Xunit;
 
 namespace Microsoft.DotNet.Interactive.SqlServer.Tests
 {
-    public sealed class MsSqlFact : FactAttribute
+    public sealed class MsSqlFactAttribute : FactAttribute
     {
         private const string TEST_MSSQL_CONNECTION_STRING = nameof(TEST_MSSQL_CONNECTION_STRING);
         private static readonly string _skipReason;
         
-        static MsSqlFact()
+        static MsSqlFactAttribute()
         {
             _skipReason = TestConnectionAndReturnSkipReason();
         }
         
-        public MsSqlFact()
+        public MsSqlFactAttribute()
         {
             if (_skipReason is not null)
             {
@@ -25,7 +25,7 @@ namespace Microsoft.DotNet.Interactive.SqlServer.Tests
             }
         }
         
-        private static string TestConnectionAndReturnSkipReason()
+        internal static string TestConnectionAndReturnSkipReason()
         {
             string connectionString = GetConnectionStringForTests();
             if (string.IsNullOrWhiteSpace(connectionString))
@@ -51,7 +51,7 @@ namespace Microsoft.DotNet.Interactive.SqlServer.Tests
         
         public static string GetConnectionStringForTests()
         {
-            return "Persist Security Info=False; Integrated Security=true; Initial Catalog=AdventureWorks2019; Server=localhost"; // Environment.GetEnvironmentVariable(TEST_MSSQL_CONNECTION_STRING);
+            return Environment.GetEnvironmentVariable(TEST_MSSQL_CONNECTION_STRING); // "Persist Security Info=False; Integrated Security=true; Initial Catalog=AdventureWorks; Server=localhost"
         }  
     }
 }

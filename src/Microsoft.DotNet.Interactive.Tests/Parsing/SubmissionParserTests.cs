@@ -4,8 +4,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.FSharp;
@@ -101,6 +103,24 @@ x
                 .Text
                 .Should()
                 .Be("#i \"nuget:/some/path\"");
+        }
+
+        [Theory]
+        [InlineData(Language.CSharp, Language.CSharp)]
+        [InlineData(Language.CSharp, Language.FSharp)]
+        [InlineData(Language.FSharp, Language.CSharp)]
+        [InlineData(Language.FSharp, Language.FSharp)]
+        public void Pound_i_is_dispatched_to_the_correct_kernel(Language defaultKernel, Language targetKernel)
+        {
+            var parser = CreateSubmissionParser(defaultKernel.LanguageName());
+
+            var command = new SubmitCode("#i \"nuget: SomeLocation\"", targetKernelName: targetKernel.LanguageName());
+
+            var subCommands = parser.SplitSubmission(command);
+
+            subCommands
+                .Should()
+                .AllSatisfy(c => c.TargetKernelName.Should().Be(targetKernel.LanguageName()));
         }
 
         [Fact]
@@ -442,5 +462,40 @@ Console.WriteLine(d);
 
             return compositeKernel.SubmissionParser;
         }
+
+        [Fact]
+        public async Task ParsedDirectives_With_Args_Consume_Newlines()
+        {
+            using var kernel = new CompositeKernel
+            {
+                new CSharpKernel().UseValueSharing(),
+                new FSharpKernel().UseValueSharing(),
+            };
+
+            var csharpCode = @"
+int x = 123;
+int y = 456;";
+
+            await kernel.SubmitCodeAsync(csharpCode);
+
+            var fsharpCode = @"
+#!share --from csharp x
+#!share --from csharp y
+Console.WriteLine($""{x} {y}"");";
+            var commands = kernel.SubmissionParser.SplitSubmission(new SubmitCode(fsharpCode));
+
+            commands
+                .Should()
+                .HaveCount(3)
+                .And
+                .ContainSingle<SubmitCode>()
+                .Which
+                .Code
+                .Should()
+                .NotBeEmpty();
+
+        }
     }
+
+    
 }

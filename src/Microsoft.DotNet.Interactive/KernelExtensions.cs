@@ -40,7 +40,7 @@ namespace Microsoft.DotNet.Interactive
 
             return kernel;
 
-            void ShutDown() 
+            void ShutDown()
             {
                 Environment.Exit(0);
             }
@@ -122,8 +122,8 @@ namespace Microsoft.DotNet.Interactive
                     {
                         if (KernelInvocationContext.Current is {} currentContext)
                         {
-                            if (e is DiagnosticEvent || 
-                                e is DisplayEvent || 
+                            if (e is DiagnosticEvent ||
+                                e is DisplayEvent ||
                                 e is DiagnosticsProduced)
                             {
                                 return;
@@ -200,7 +200,13 @@ namespace Microsoft.DotNet.Interactive
                 {
                     if (fromKernel.TryGetValue(name, out object shared))
                     {
-                        await ((ISupportSetValue)kernel).SetValueAsync(name, shared);
+                        try
+                        {
+                            await ((ISupportSetValue)kernel).SetValueAsync(name, shared);
+                        } catch (Exception ex)
+                        {
+                            throw new InvalidOperationException($"Error sharing value '{name}' from kernel '{from}' into kernel '{kernel.Name}'. {ex.Message}", ex);
+                        }
                     }
                 }
             });
@@ -302,7 +308,7 @@ namespace Microsoft.DotNet.Interactive
         }
 
         [DebuggerStepThrough]
-        public static T LogCommandsToPocketLogger<T>(this T kernel) 
+        public static T LogCommandsToPocketLogger<T>(this T kernel)
             where T : Kernel
         {
             kernel.AddMiddleware(async (command, context, next) =>
