@@ -3,12 +3,12 @@
 
 using System;
 using System.Collections.Generic;
-using System.CommandLine;
-using System.CommandLine.Invocation;
+using System.CommandLine.Parsing;
 using System.Threading.Tasks;
+
 using Kusto.Data.Common;
-using Microsoft.DotNet.Interactive.Commands;
-using Microsoft.DotNet.Interactive.Formatting;
+
+using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.SqlServer;
 
 namespace Microsoft.DotNet.Interactive.Kql
@@ -16,18 +16,14 @@ namespace Microsoft.DotNet.Interactive.Kql
     internal class MsKqlKernel : ToolsServiceKernel
     {
         private readonly KqlConnectionDetails _connectionDetails;
+        private ChooseMsKqlKernelDirective _chooseKernelDirective;
 
         public MsKqlKernel(
             string name,
             KqlConnectionDetails connectionDetails,
             ToolsServiceClient client) : base(name, client)
         {
-            if (connectionDetails is null)
-            {
-                throw new ArgumentException("Value cannot be null or whitespace.", nameof(connectionDetails));
-            }
-
-            _connectionDetails = connectionDetails;
+            _connectionDetails = connectionDetails ?? throw new ArgumentException("Value cannot be null or whitespace.", nameof(connectionDetails));
         }
 
         public override async Task ConnectAsync()
@@ -40,33 +36,33 @@ namespace Microsoft.DotNet.Interactive.Kql
             }
         }
 
-        protected override ChooseKernelDirective CreateChooseKernelDirective() =>
-            new ChooseKqlKernelDirective(this);
 
-        protected override string GenerateVariableDeclaration(KeyValuePair<string, object> variableNameAndValue)
+        public override ChooseMsKqlKernelDirective ChooseKernelDirective => _chooseKernelDirective ??= new(this);
+
+        protected override string CreateVariableDeclaration(string name, object value)
         {
-            return $"let {variableNameAndValue.Key} = {MapToKqlValueDeclaration(variableNameAndValue.Value)};";
+            return $"let {name} = {MapToKqlValueDeclaration(value)};";
 
             static string MapToKqlValueDeclaration(object value) =>
-            value switch
-            {
-                string s => s.AsDoubleQuotedString(),
-                char c => c.ToString().AsDoubleQuotedString(),
-                _ => value.ToString()
-            };
+                value switch
+                {
+                    string s => s.AsDoubleQuotedString(),
+                    char c => c.ToString().AsDoubleQuotedString(),
+                    _ => value.ToString()
+                };
         }
 
-        protected override bool CanSupportVariable(string name, object value, out string msg)
+        protected override bool CanDeclareVariable(string name, object value, out string msg)
         {
             msg = default;
-            if (value.GetType() == typeof(char))
+            if (value is char)
             {
                 // CslType doesn't support char but we just convert it to a string for our use here
                 return true;
             }
             try
             {
-                CslType.FromClrType(value.GetType());
+                var _ = CslType.FromClrType(value.GetType());
             }
             catch (Exception e)
             {
@@ -76,30 +72,14 @@ namespace Microsoft.DotNet.Interactive.Kql
             return true;
         }
 
-        private class ChooseKqlKernelDirective : ChooseKernelDirective
+
+        protected override void StoreQueryResults(IReadOnlyCollection<TabularDataResource> results, ParseResult commandKernelChooserParseResult)
         {
-            public ChooseKqlKernelDirective(Kernel kernel) : base(kernel, $"Run a Kusto query using the \"{kernel.Name}\" connection.")
+            var chooser = ChooseKernelDirective;
+            var name = commandKernelChooserParseResult.ValueForOption(chooser.NameOption);
+            if (!string.IsNullOrWhiteSpace(name))
             {
-                Add(MimeTypeOption);
-            }
-
-            private Option<string> MimeTypeOption { get; } = new(
-                "--mime-type",
-                description: "Specify the MIME type to use for the data.",
-                getDefaultValue: () => HtmlFormatter.MimeType);
-
-            protected override async Task Handle(KernelInvocationContext kernelInvocationContext, InvocationContext commandLineInvocationContext)
-            {
-                await base.Handle(kernelInvocationContext, commandLineInvocationContext);
-
-                switch (kernelInvocationContext.Command)
-                {
-                    case SubmitCode c:
-                        var mimeType = commandLineInvocationContext.ParseResult.ValueForOption(MimeTypeOption);
-
-                        c.Properties.Add("mime-type", mimeType);
-                        break;
-                }
+                QueryResults[name] = results;
             }
         }
     }

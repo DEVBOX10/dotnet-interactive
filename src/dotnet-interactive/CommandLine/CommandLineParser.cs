@@ -26,7 +26,6 @@ using Microsoft.DotNet.Interactive.Http;
 using Microsoft.DotNet.Interactive.Jupyter;
 using Microsoft.DotNet.Interactive.Jupyter.Formatting;
 using Microsoft.DotNet.Interactive.PowerShell;
-using Microsoft.DotNet.Interactive.Server;
 using Microsoft.DotNet.Interactive.Telemetry;
 using Microsoft.DotNet.Interactive.VSCode;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,14 +51,9 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
             StartServer startServer = null,
             InvocationContext context = null);
 
-        public delegate Task StartStdIO(
-            StartupOptions options,
-            KernelServer kernel,
-            IConsole console);
-
-        public delegate Task StartVSCode(
-            StartupOptions options,
-            KernelServer kernel,
+        public delegate Task StartKernelHost(
+            StartupOptions startupOptions,
+            KernelHost kernelHost,
             IConsole console);
 
         public delegate Task StartNotebookParser(
@@ -75,8 +69,7 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
             IServiceCollection services,
             StartServer startServer = null,
             Jupyter jupyter = null,
-            StartStdIO startStdIO = null,
-            StartVSCode startVSCode = null,
+            StartKernelHost startKernelHost = null,
             StartNotebookParser startNotebookParser = null,
             StartHttp startHttp = null,
             Action onServerStarted = null,
@@ -105,10 +98,8 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
 
             jupyter ??= JupyterCommand.Do;
 
-            startStdIO ??= StdIOCommand.Do;
-
-            startVSCode ??= VSCodeCommand.Do;
-
+            startKernelHost ??= KernelHostLauncher.Do;
+            
             startNotebookParser ??= ParseNotebookCommand.Do;
 
             startHttp ??= HttpCommand.Do;
@@ -140,7 +131,6 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                         {
                             case "jupyter":
                             case "synapse":
-                            case "vscode":
                                 frontendTelemetryAdded = true;
                                 entryItems.Add(new KeyValuePair<string, string>("frontend", directive.Key));
                                 break;
@@ -426,6 +416,10 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                 stdIOCommand.Handler = CommandHandler.Create<StartupOptions, StdIOOptions, IConsole, InvocationContext>(
                     async (startupOptions, options, console, context) =>
                     {
+                        Console.InputEncoding = Encoding.UTF8;
+                        Console.OutputEncoding = Encoding.UTF8;
+                        Environment.CurrentDirectory = startupOptions.WorkingDir.FullName;
+
                         FrontendEnvironment frontendEnvironment = startupOptions.EnableHttpApi
                             ? new HtmlNotebookFrontendEnvironment()
                             : new BrowserFrontendEnvironment();
@@ -435,8 +429,11 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                         services.AddKernel(kernel);
 
                         kernel.UseQuitCommand();
-                        var kernelServer = kernel.CreateKernelServer(startupOptions.WorkingDir);
 
+                        var host = new KernelHost(kernel, new KernelCommandAndEventTextStreamSender(Console.Out),
+                            new MultiplexingKernelCommandAndEventReceiver(
+                                new KernelCommandAndEventTextReceiver(Console.In)));
+                       
                         if (startupOptions.EnableHttpApi)
                         {
                             var clientSideKernelClient = new SignalRBackchannelKernelClient();
@@ -446,24 +443,22 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                             kernel.Add(
                                 new JavaScriptKernel(clientSideKernelClient),
                                 new[] { "js" });
-
-                            var _ = kernelServer.RunAsync();
+                            
                             onServerStarted ??= () =>
                             {
-                                kernelServer.NotifyIsReady();
+                                var _ = host.ConnectAsync();
                             };
                             await startHttp(startupOptions, console, startServer, context);
                         }
+                        else
+                        {
+                            await host.CreateProxyKernelOnDefaultConnectorAsync(new KernelInfo("javascript", new[] { "js" }, new Uri("kernel://webview/javascript")));
 
-                        kernel.Add(
-                            new JavaScriptKernel(),
-                            new[] { "js" });
+                            await startKernelHost(startupOptions, host, console);
+                        }
 
-                        await startStdIO(
-                            startupOptions,
-                            kernelServer,
-                            console);
-
+                        return 0;
+                        
                     });
 
                 return stdIOCommand;
@@ -527,6 +522,10 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                 vscodeCommand.Handler = CommandHandler.Create<StartupOptions, StdIOOptions, IConsole, InvocationContext>(
                     async (startupOptions, options, console, context) =>
                     {
+                        Console.InputEncoding = Encoding.UTF8;
+                        Console.OutputEncoding = Encoding.UTF8;
+                        Environment.CurrentDirectory = startupOptions.WorkingDir.FullName;
+
                         FrontendEnvironment frontendEnvironment = startupOptions.EnableHttpApi
                             ? new HtmlNotebookFrontendEnvironment()
                             : new BrowserFrontendEnvironment();
@@ -536,59 +535,34 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
                         services.AddKernel(kernel);
 
                         kernel = kernel
-                            .UseQuitCommand()
-                            .UseVSCodeCommands();
-                        
-                        var kernelServer = kernel.CreateKernelServer(startupOptions.WorkingDir);
+                            .UseQuitCommand();
 
-                        kernel.VisitSubkernels(k =>
-                        {
-                            switch (k)
-                            {
-                                case CSharpKernel csharpKernel:
-                                    csharpKernel.UseVSCodeHelpers();
-                                    break;
-                                case FSharpKernel fsharpKernel:
-                                    fsharpKernel.UseVSCodeHelpers();
-                                    break;
-                                case PowerShellKernel powerShellKernel:
-                                    powerShellKernel.UseVSCodeHelpers();
-                                    break;
-                            }
-                        });
+                        var host = new KernelHost(kernel, new KernelCommandAndEventTextStreamSender(Console.Out),
+                            new MultiplexingKernelCommandAndEventReceiver(
+                                new KernelCommandAndEventTextReceiver(Console.In)));
 
+                        var vscodeSetup = new VSCodeClientKernelsExtension();
 
-                        var frontEndKernel = kernelServer.GetFrontEndKernel("vscode");
-                        kernel.Add(frontEndKernel, new[] { "frontend" });
+                        await vscodeSetup.OnLoadAsync(kernel);
 
                         if (startupOptions.EnableHttpApi)
                         {
                             var clientSideKernelClient = new SignalRBackchannelKernelClient();
-                            
                             services.AddSingleton(clientSideKernelClient);
-                            ((HtmlNotebookFrontendEnvironment)frontendEnvironment).RequiresAutomaticBootstrapping =
-                                false;
-                            kernel.Add(
-                                new JavaScriptKernel(clientSideKernelClient),
-                                new[] { "js" });
 
-                            var _ = kernelServer.RunAsync();
+                            ((HtmlNotebookFrontendEnvironment)frontendEnvironment).RequiresAutomaticBootstrapping = false;
+
                             onServerStarted ??= () =>
                             {
-                                kernelServer.NotifyIsReady();
+                                var _ = host.ConnectAsync();
                             };
                             await startHttp(startupOptions, console, startServer, context);
                         }
-
-                        kernel.Add(
-                            new JavaScriptKernel(),
-                            new[] { "js" });
-
-                        await startVSCode(
-                            startupOptions,
-                            kernelServer,
-                            console);
-
+                        else
+                        {
+                            await startKernelHost(startupOptions, host, console);
+                        }
+                        return 0;
                     });
 
                 return vscodeCommand;
@@ -655,8 +629,8 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
             compositeKernel.FrontendEnvironment = frontendEnvironment;
 
             // TODO: temporary measure to support vscode integrations
-            compositeKernel.Add(new SQLKernel());
-            compositeKernel.Add(new KqlKernel());
+            compositeKernel.Add(new SqlDiscoverabilityKernel());
+            compositeKernel.Add(new KqlDiscoverabilityKernel());
 
             compositeKernel.Add(
                 new CSharpKernel()
@@ -722,10 +696,10 @@ namespace Microsoft.DotNet.Interactive.App.CommandLine
 
                 case BrowserFrontendEnvironment browserFrontendEnvironment:
                     Formatter.DefaultMimeType = HtmlFormatter.MimeType;
-                    Formatter.SetPreferredMimeTypeFor(typeof(LaTeXString), "text/latex");
-                    Formatter.SetPreferredMimeTypeFor(typeof(MathString), "text/latex");
-                    Formatter.SetPreferredMimeTypeFor(typeof(string), PlainTextFormatter.MimeType);
-                    Formatter.SetPreferredMimeTypeFor(typeof(ScriptContent), HtmlFormatter.MimeType);
+                    Formatter.SetPreferredMimeTypesFor(typeof(LaTeXString), "text/latex");
+                    Formatter.SetPreferredMimeTypesFor(typeof(MathString), "text/latex");
+                    Formatter.SetPreferredMimeTypesFor(typeof(string), PlainTextFormatter.MimeType);
+                    Formatter.SetPreferredMimeTypesFor(typeof(ScriptContent), HtmlFormatter.MimeType);
 
                     Formatter.Register<LaTeXString>((laTeX, writer) => writer.Write(laTeX.ToString()), "text/latex");
                     Formatter.Register<MathString>((math, writer) => writer.Write(math.ToString()), "text/latex");

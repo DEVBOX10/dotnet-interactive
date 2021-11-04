@@ -18,7 +18,7 @@ namespace Microsoft.DotNet.Interactive.Commands
         {
             ParseResult = parseResult;
             DirectiveNode = directiveNode;
-            KernelUri = directiveNode?.KernelUri;
+            SchedulingScope = directiveNode?.CommandScope;
         }
 
         public ParseResult ParseResult { get; }
@@ -31,7 +31,6 @@ namespace Microsoft.DotNet.Interactive.Commands
             {
                 throw new InvalidOperationException($"{string.Join(";", ParseResult.Errors)}");
             }
-
             await ParseResult.InvokeAsync();
         }
 

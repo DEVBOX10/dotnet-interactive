@@ -2,7 +2,6 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
-
 using Microsoft.DotNet.Interactive.Parsing;
 
 namespace Microsoft.DotNet.Interactive.Commands
@@ -29,7 +28,7 @@ namespace Microsoft.DotNet.Interactive.Commands
             LanguageNode = languageNode;
             SubmissionType = submissionType;
             KernelNameDirectiveNode = kernelNameDirectiveNode;
-            KernelUri = languageNode.KernelUri;
+            SchedulingScope = languageNode.CommandScope;
 
             if (languageNode is ActionDirectiveNode actionDirectiveNode)
             {

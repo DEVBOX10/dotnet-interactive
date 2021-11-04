@@ -82,7 +82,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
             var tree = Parse(code, originalCommand.TargetKernelName);
             var nodes = tree.GetRoot().ChildNodes.ToArray();
             var targetKernelName = originalCommand.TargetKernelName ?? KernelLanguage;
-            var lastKernelUri = originalCommand.KernelUri;
+            var lastCommandScope = originalCommand.SchedulingScope;
             KernelNameDirectiveNode lastKernelNameNode = null;
 
             foreach (var node in nodes)
@@ -116,24 +116,20 @@ namespace Microsoft.DotNet.Interactive.Parsing
                             break;
                         }
 
-                        var directiveCommand = new DirectiveCommand(
-                            parseResult,
-                            originalCommand,
-                            directiveNode)
-                        {
-                            TargetKernelName = targetKernelName
-                        };
-
-                        if (directiveNode is ProxyKernelNameDirectiveNode p)
-                        {
-                            directiveCommand.TargetKernelName = p.KernelName;
-                        }
-
                         if (directiveNode is KernelNameDirectiveNode kernelNameNode)
                         {
                             targetKernelName = kernelNameNode.KernelName;
                             lastKernelNameNode = kernelNameNode;
                         }
+
+                        var directiveCommand = new DirectiveCommand(
+                            parseResult,
+                            originalCommand,
+                            directiveNode)
+                        {
+                            TargetKernelName = targetKernelName,
+                            KernelChooserParseResult = lastKernelNameNode?.GetDirectiveParseResult()
+                        };
 
                         if (parseResult.CommandResult.Command.Name == "#r")
                         {
@@ -141,11 +137,13 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
                             if (value?.Value is FileInfo)
                             {
-                                AddHoistedCommand(createCommand(directiveNode, originalCommand, lastKernelNameNode));
+                                var hoistedCommand = createCommand(directiveNode, originalCommand, lastKernelNameNode);
+                                hoistedCommand.KernelChooserParseResult = lastKernelNameNode?.GetDirectiveParseResult();
+                                AddHoistedCommand(hoistedCommand);
                             }
                             else
                             {
-                                directiveCommand.KernelUri = lastKernelUri;
+                                directiveCommand.SchedulingScope = lastCommandScope;
                                 directiveCommand.TargetKernelName = targetKernelName;
                                 AddHoistedCommand(directiveCommand);
                                 nugetRestoreOnKernels.Add(targetKernelName);
@@ -153,7 +151,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
                         }
                         else if (parseResult.CommandResult.Command.Name == "#i")
                         {
-                            directiveCommand.KernelUri = lastKernelUri;
+                            directiveCommand.SchedulingScope = lastCommandScope;
                             directiveCommand.TargetKernelName = targetKernelName;
                             AddHoistedCommand(directiveCommand);
                             nugetRestoreOnKernels.Add(targetKernelName);
@@ -170,7 +168,11 @@ namespace Microsoft.DotNet.Interactive.Parsing
                         break;
 
                     case LanguageNode languageNode:
-                        commands.Add(createCommand(languageNode, originalCommand, lastKernelNameNode));
+                    {
+                        var kernelCommand = createCommand(languageNode, originalCommand, lastKernelNameNode);
+                        kernelCommand.KernelChooserParseResult = lastKernelNameNode?.GetDirectiveParseResult();
+                        commands.Add(kernelCommand);
+                    }
                         break;
 
                     default:
@@ -188,7 +190,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
                         parser.Parse("#!nuget-restore"),
                         originalCommand)
                     {
-                        KernelUri = kernel.Uri,
+                        SchedulingScope = kernel.SchedulingScope,
                         TargetKernelName = kernelName
                     };
                     AddHoistedCommand(restore);
@@ -244,14 +246,14 @@ namespace Microsoft.DotNet.Interactive.Parsing
             }
         }
 
-        internal IDictionary<string, (KernelUri kernelUri, Func<Parser> getParser)> GetSubkernelDirectiveParsers()
+        internal IDictionary<string, (SchedulingScope commandScope, Func<Parser> getParser)> GetSubkernelDirectiveParsers()
         {
             if (!(_kernel is CompositeKernel compositeKernel))
             {
                 return null;
             }
 
-            var dict = new Dictionary<string, (KernelUri , Func<Parser>)>();
+            var dict = new Dictionary<string, (SchedulingScope , Func<Parser>)>();
 
             for (var i = 0; i < compositeKernel.ChildKernels.Count; i++)
             {
@@ -265,7 +267,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
                     }
                 }
 
-                (KernelUri, Func<Parser>) GetParser() => (childKernel.Uri,() => childKernel.SubmissionParser.GetDirectiveParser());
+                (SchedulingScope, Func<Parser>) GetParser() => (childKernel.SchedulingScope,() => childKernel.SubmissionParser.GetDirectiveParser());
             }
 
             return dict;

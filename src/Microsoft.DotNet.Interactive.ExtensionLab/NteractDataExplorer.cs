@@ -4,7 +4,6 @@
 using System;
 using System.Text;
 using Microsoft.AspNetCore.Html;
-using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.Http;
 
@@ -35,7 +34,7 @@ namespace Microsoft.DotNet.Interactive.ExtensionLab
         {
             _defaultLibraryUri = libraryUri;
             _defaultLibraryVersion = libraryVersion;
-            _defaultCacheBuster = cacheBuster;
+            _defaultCacheBuster = string.IsNullOrWhiteSpace(cacheBuster) ? Guid.NewGuid().ToString("N") : cacheBuster;
         }
 
         public static void ResetDefaultConfiguration()
@@ -70,7 +69,7 @@ namespace Microsoft.DotNet.Interactive.ExtensionLab
         {
             libraryVersion ??= "1.0.0";
             stringBuilder.AppendLine($@"
-let {functionName} = () => {{");
+{functionName} = () => {{");
             if (libraryUri is not null)
             {
                 var libraryAbsoluteUri = libraryUri.AbsoluteUri.Replace(".js", string.Empty);

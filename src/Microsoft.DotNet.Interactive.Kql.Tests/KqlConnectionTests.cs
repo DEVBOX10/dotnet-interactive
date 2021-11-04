@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -9,6 +10,7 @@ using Microsoft.DotNet.Interactive.ExtensionLab;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.Tests.Utility;
+using Microsoft.DotNet.Interactive.ValueSharing;
 using Xunit;
 
 namespace Microsoft.DotNet.Interactive.Kql.Tests
@@ -25,7 +27,7 @@ namespace Microsoft.DotNet.Interactive.Kql.Tests
             // TODO: remove KQLKernel it is used to test current patch
             var kernel = new CompositeKernel
             {
-                new KqlKernel(),
+                new KqlDiscoverabilityKernel(),
                 csharpKernel,
                 new KeyValueStoreKernel()
             };
@@ -68,6 +70,30 @@ StormEvents | take 10
             events.Should()
                 .ContainSingle<DisplayedValueProduced>(e =>
                     e.FormattedValues.Any(f => f.MimeType == HtmlFormatter.MimeType));
+        }
+
+
+        [KqlFact]
+        public async Task It_can_store_result_set_with_a_name()
+        {
+            var cluster = KqlFactAttribute.GetClusterForTests();
+            using var kernel = await CreateKernel();
+            var result = await kernel.SubmitCodeAsync(
+                $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
+
+            result.KernelEvents
+                .ToSubscribedList()
+                .Should()
+                .NotContainErrors();
+
+            result = await kernel.SubmitCodeAsync(@"
+#!kql-KustoHelp --name my_data_result
+StormEvents | take 10
+            ");
+
+            var kqlKernel = kernel.FindKernel("kql-KustoHelp") as ISupportGetValue;
+            kqlKernel.TryGetValue("my_data_result", out object variable).Should().BeTrue();
+            variable.Should().BeAssignableTo<IEnumerable<TabularDataResource>>();
         }
 
         [KqlFact]
@@ -118,7 +144,7 @@ StormEvents | take 10
                   .NotContainErrors();
 
             result = await kernel.SubmitCodeAsync($@"
-#!kql-KustoHelp --mime-type {TabularDataResourceFormatter.MimeType}
+#!kql-KustoHelp
 StormEvents | take 10
 ");
 
@@ -131,7 +157,7 @@ StormEvents | take 10
                         e.FormattedValues.Any(f => f.MimeType == HtmlFormatter.MimeType))
                               .Which;
 
-            var table = (NteractDataExplorer)value.Value;
+            var table = (DataExplorer<TabularDataResource>)value.Value;
 
             table.Data
                  .Schema
@@ -142,6 +168,36 @@ StormEvents | take 10
                  .Type
                  .Should()
                  .Be(TableSchemaFieldType.DateTime);
+        }
+
+        [KqlFact]
+        public async Task query_produces_expected_formatted_values()
+        {
+            var cluster = KqlFactAttribute.GetClusterForTests();
+            using var kernel = await CreateKernel();
+            var result = await kernel.SubmitCodeAsync(
+                $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
+
+            result.KernelEvents
+                .ToSubscribedList()
+                .Should()
+                .NotContainErrors();
+
+            result = await kernel.SubmitCodeAsync($@"
+#!kql-KustoHelp
+StormEvents | take 10
+");
+
+            var events = result.KernelEvents.ToSubscribedList();
+
+            events.Should().NotContainErrors();
+
+            events.Should()
+                .ContainSingle<DisplayedValueProduced>(fvp => fvp.Value is DataExplorer<TabularDataResource>)
+                .Which
+                .FormattedValues.Select(fv => fv.MimeType)
+                .Should()
+                .BeEquivalentTo(HtmlFormatter.MimeType, TabularDataResourceFormatter.MimeType);
         }
 
         [KqlFact]
@@ -158,7 +214,7 @@ StormEvents | take 10
                   .NotContainErrors();
 
             result = await kernel.SubmitCodeAsync($@"
-#!kql-KustoHelp --mime-type {TabularDataResourceFormatter.MimeType}
+#!kql-KustoHelp
 StormEvents | take 0
 ");
 
@@ -238,6 +294,7 @@ print testVar";
         {
             var cluster = KqlFactAttribute.GetClusterForTests();
             using var kernel = await CreateKernel();
+            
             var result = await kernel.SubmitCodeAsync(
                 $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
 
@@ -284,6 +341,7 @@ print testVar";
         public void Dispose()
         {
             Formatter.ResetToDefault();
+            DataExplorer.ResetToDefault();
         }
     }
 }
