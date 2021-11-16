@@ -140,10 +140,12 @@ namespace Microsoft.DotNet.Interactive.Formatting
                     return true;
                 }
 
+                var canCountRemainder = source is ICollection;
+
                 var (rowData, remainingCount) = getValues(source)
                                                 .Cast<object>()
                                                 .Select((v, i) => (v, i))
-                                                .TakeAndCountRemaining(Formatter.ListExpansionLimit);
+                                                .TakeAndCountRemaining(Formatter.ListExpansionLimit, canCountRemainder);
 
                 if (rowData.Count == 0)
                 {
@@ -225,7 +227,6 @@ namespace Microsoft.DotNet.Interactive.Formatting
                 if (typesAreDifferent)
                 {
                     headers.Insert(1, th(i("type")));
-
                 }
 
                 // Order the columns first by the *first* type to exhibit the
@@ -279,9 +280,11 @@ namespace Microsoft.DotNet.Interactive.Formatting
 
                 if (remainingCount > 0)
                 {
-                    var more = $"({remainingCount} more)";
-
-                    rows.Add(tr(td[colspan: $"{headers.Count}"](more)));
+                    rows.Add(tr(td[colspan: $"{headers.Count}"](i($"({remainingCount} more)"))));
+                }
+                else if (remainingCount is null)
+                {
+                    rows.Add(tr(td[colspan: $"{headers.Count}"](i("... (more)"))));
                 }
 
                 var table = Html.Table(headers, rows);

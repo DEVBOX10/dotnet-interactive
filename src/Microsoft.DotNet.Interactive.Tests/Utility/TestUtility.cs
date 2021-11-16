@@ -17,12 +17,10 @@ using FluentAssertions.Primitives;
 
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
-using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.Parsing;
 using Microsoft.DotNet.Interactive.Server;
 
-using Newtonsoft.Json;
 
 namespace Microsoft.DotNet.Interactive.Tests.Utility
 {
@@ -70,7 +68,7 @@ namespace Microsoft.DotNet.Interactive.Tests.Utility
 
         public static void BeJsonEquivalentTo<T>(this StringAssertions assertion, T expected)
         {
-            var obj = JsonConvert.DeserializeObject(assertion.Subject, expected.GetType());
+            var obj = System.Text.Json.JsonSerializer.Deserialize(assertion.Subject, expected.GetType());
             obj.Should().BeEquivalentToRespectingRuntimeTypes(expected);
         }
 
@@ -318,17 +316,18 @@ namespace Microsoft.DotNet.Interactive.Tests.Utility
 
     internal static class TestUtility
     {
-        internal static TabularDataResource GetTabularData(SubscribedList<KernelEvent> events)
+        internal static TabularDataResource ShouldDisplayTabularDataResourceWhich(
+            this SubscribedList<KernelEvent> events)
         {
             events.Should().NotContainErrors();
 
-            return ((DataExplorer<TabularDataResource>)events
-                           .Should()
-                           .ContainSingle<DisplayedValueProduced>(e =>
-                                                                      e.FormattedValues.Any(f => f.MimeType == HtmlFormatter.MimeType))
-                           .Which
-                           .Value
-                    ).Data;
+            return events
+                   .Should()
+                   .ContainSingle<DisplayedValueProduced>(e => e.Value is DataExplorer<TabularDataResource>)
+                   .Which
+                   .Value
+                   .As<DataExplorer<TabularDataResource>>()
+                   .Data;
         }
     }
 }

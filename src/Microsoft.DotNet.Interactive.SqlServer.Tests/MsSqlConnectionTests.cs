@@ -12,6 +12,7 @@ using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.ExtensionLab;
 using Microsoft.DotNet.Interactive.Formatting;
+using Microsoft.DotNet.Interactive.Formatting.Csv;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Xunit;
@@ -122,10 +123,9 @@ SELECT TOP 100 * FROM Person.Person
 
             events.Should().NotContainErrors();
 
-            result = await kernel.SubmitCodeAsync("adventureworks.AddressType.Count()");
+            result = await kernel.SubmitCodeAsync("adventureworks.AddressTypes.Count()");
 
             events = result.KernelEvents.ToSubscribedList();
-
             events.Should().NotContainErrors();
 
             events.Should()
@@ -157,15 +157,15 @@ select * from sys.databases
 
             var events = result.KernelEvents.ToSubscribedList();
 
-            TestUtility.GetTabularData(events)
-                 .Schema
-                 .Fields
-                 .Should()
-                 .ContainSingle(f => f.Name == "database_id")
-                 .Which
-                 .Type
-                 .Should()
-                 .Be(TableSchemaFieldType.Integer);
+            events.ShouldDisplayTabularDataResourceWhich()
+                  .Schema
+                  .Fields
+                  .Should()
+                  .ContainSingle(f => f.Name == "database_id")
+                  .Which
+                  .Type
+                  .Should()
+                  .Be(TableSchemaFieldType.Integer);
         }
 
         [MsSqlFact]
@@ -195,7 +195,7 @@ select * from sys.databases
                 .Which
                 .FormattedValues.Select(fv => fv.MimeType)
                 .Should()
-                .BeEquivalentTo(HtmlFormatter.MimeType, TabularDataResourceFormatter.MimeType);
+                .BeEquivalentTo(HtmlFormatter.MimeType, CsvFormatter.MimeType);
         }
 
         [MsSqlFact]
@@ -300,11 +300,7 @@ select @testVar";
 
             var events = result.KernelEvents.ToSubscribedList();
 
-            events
-                .Should()
-                .NotContainErrors();
-
-            var data = TestUtility.GetTabularData(events);
+            var data = events.ShouldDisplayTabularDataResourceWhich();
 
             if (changeType != null)
             {
@@ -347,18 +343,12 @@ select @x, @y";
 
             var events = result.KernelEvents.ToSubscribedList();
 
-            events
-                .Should()
-                .NotContainErrors();
-
-            var data = TestUtility.GetTabularData(events);
-
-            data.Data
-                .Should()
-                .ContainSingle()
-                .Which
-                .Should()
-                .ContainValues(new object[] { "Hello world!", 123 });
+            events.ShouldDisplayTabularDataResourceWhich().Data
+                  .Should()
+                  .ContainSingle()
+                  .Which
+                  .Should()
+                  .ContainValues(new object[] { "Hello world!", 123 });
         }
 
         [MsSqlTheory]
@@ -419,8 +409,8 @@ select @testVar";
 
         public void Dispose()
         {
-            Formatter.ResetToDefault();
             DataExplorer.ResetToDefault();
+            Formatter.ResetToDefault();
         }
     }
 }

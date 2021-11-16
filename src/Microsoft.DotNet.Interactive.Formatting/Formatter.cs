@@ -10,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using Microsoft.DotNet.Interactive.Formatting.Csv;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 
 namespace Microsoft.DotNet.Interactive.Formatting
@@ -111,10 +112,13 @@ namespace Microsoft.DotNet.Interactive.Formatting
 
             // In the lists of default formatters, the highest priority ones come first,
             // so register those last.
+
+            // TODO: (ResetToDefault) remove the need to reverse these
             _defaultTypeFormatters.PushRange(TabularDataResourceFormatter.DefaultFormatters.Reverse().ToArray());
-            _defaultTypeFormatters.PushRange(DefaultHtmlFormatterSet.DefaultFormatters.Reverse().ToArray());
+            _defaultTypeFormatters.PushRange(CsvFormatter.DefaultFormatters.Reverse().ToArray());
+            _defaultTypeFormatters.PushRange(HtmlFormatter.DefaultFormatters.Reverse().ToArray());
             _defaultTypeFormatters.PushRange(JsonFormatter.DefaultFormatters.Reverse().ToArray());
-            _defaultTypeFormatters.PushRange(DefaultPlainTextFormatterSet.DefaultFormatters.Reverse().ToArray());
+            _defaultTypeFormatters.PushRange(PlainTextFormatter.DefaultFormatters.Reverse().ToArray());
 
             // It is unclear if we need this default:
             _defaultPreferredMimeTypes.Push((typeof(string), PlainTextFormatter.MimeType));
@@ -338,58 +342,53 @@ namespace Microsoft.DotNet.Interactive.Formatting
             TextWriter writer,
             FormatContext context,
             int? listExpansionLimit = null) =>
-            Join(list.Cast<object>(), writer, context, listExpansionLimit);
+            JoinGeneric(list.Cast<object>(), writer, context, listExpansionLimit);
 
-        internal static void Join<T>(
-            IEnumerable<T> list,
+        internal static void JoinGeneric<T>(
+            IEnumerable<T> seq,
             TextWriter writer,
             FormatContext context,
             int? listExpansionLimit = null)
         {
-            if (list is null)
+            if (seq is null)
             {
                 writer.Write(NullString);
                 return;
             }
 
-            var i = 0;
-
             SingleLinePlainTextFormatter.WriteStartSequence(writer);
 
             listExpansionLimit ??= Formatter<T>.ListExpansionLimit;
 
-            using (var enumerator = list.GetEnumerator())
+            var (itemsToWrite, remainingCount) = seq.TakeAndCountRemaining(listExpansionLimit.Value);
+
+            for (var i = 0; i < itemsToWrite.Count; i++)
             {
-                while (enumerator.MoveNext())
+                var item = itemsToWrite[i];
+                if (i < listExpansionLimit)
                 {
-                    if (i < listExpansionLimit)
+                    // write out another item in the list
+                    if (i > 0)
                     {
-                        // write out another item in the list
-                        if (i > 0)
-                        {
-                            SingleLinePlainTextFormatter.WriteSequenceDelimiter(writer);
-                        }
-
-                        i++;
-
-                        SingleLinePlainTextFormatter.WriteStartSequenceItem(writer);
-
-                        enumerator.Current.FormatTo(context);
+                        SingleLinePlainTextFormatter.WriteSequenceDelimiter(writer);
                     }
-                    else
-                    {
-                        // write out just a count of the remaining items in the list
-                        var difference = list.Count() - i;
-                        if (difference > 0)
-                        {
-                            writer.Write(" ... (");
-                            writer.Write(difference);
-                            writer.Write(" more)");
-                        }
 
-                        break;
-                    }
+                    SingleLinePlainTextFormatter.WriteStartSequenceItem(writer);
+
+                    item.FormatTo(context);
                 }
+            }
+
+            if (remainingCount != 0)
+            {
+                writer.Write(" ... (");
+
+                if (remainingCount is { })
+                {
+                    writer.Write($"{remainingCount} ");
+                }
+
+                writer.Write("more)");
             }
 
             SingleLinePlainTextFormatter.WriteEndSequence(writer);
@@ -502,9 +501,6 @@ namespace Microsoft.DotNet.Interactive.Formatting
             }
         }
 
-        public static IEnumerable<ITypeFormatter> GetRegisteredFormattersFor(Type actualType) =>
-            RegisteredFormatters().Where(f => f.Type.IsAssignableFrom(actualType));
-
         public static ITypeFormatter GetPreferredFormatterFor(Type actualType, string mimeType) =>
             _typeFormattersTable
                 .GetOrAdd(
@@ -553,10 +549,14 @@ namespace Microsoft.DotNet.Interactive.Formatting
             }
 
             // Last resort use preferred mimeType
+            var preferredMimeType = GetPreferredMimeTypesFor(actualType).FirstOrDefault(m => m == mimeType);
 
-            var preferredMimeType = GetPreferredMimeTypesFor(actualType);
+            if (preferredMimeType != mimeType)
+            {
+                throw new ArgumentException($"No formatter is registered for MIME type {mimeType}.");
+            }
 
-            return GetPreferredFormatterFor(actualType, preferredMimeType.FirstOrDefault());
+            return GetPreferredFormatterFor(actualType, preferredMimeType);
         }
 
         internal static ITypeFormatter TryInferPreferredFormatter(Type actualType, string mimeType, IEnumerable<ITypeFormatter> formatters)
