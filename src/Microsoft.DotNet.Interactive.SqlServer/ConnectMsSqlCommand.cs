@@ -5,15 +5,17 @@ using System.CommandLine;
 using System.Threading.Tasks;
 using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.CSharp;
-using Microsoft.DotNet.Interactive.Documents;
 
 namespace Microsoft.DotNet.Interactive.SqlServer
 {
     public class ConnectMsSqlCommand : ConnectKernelCommand<MsSqlKernelConnector>
     {
-        public ConnectMsSqlCommand()
+        private readonly string ResolvedToolsServicePath;
+
+        public ConnectMsSqlCommand(string resolvedToolsServicePath)
             : base("mssql", "Connects to a Microsoft SQL Server database")
         {
+            ResolvedToolsServicePath = resolvedToolsServicePath;
             Add(new Argument<string>(
                     "connectionString",
                     "The connection string used to connect to the database"));
@@ -25,11 +27,7 @@ namespace Microsoft.DotNet.Interactive.SqlServer
         public override async Task<Kernel> ConnectKernelAsync(KernelInfo kernelInfo, MsSqlKernelConnector connector,
             KernelInvocationContext context)
         {
-            var root = Kernel.Root.FindResolvedPackageReference();
-
-            var pathToService = root.PathToService("MicrosoftSqlToolsServiceLayer");
-
-            connector.PathToService = pathToService;
+            connector.PathToService = ResolvedToolsServicePath;
 
             var kernel = await connector.ConnectKernelAsync(kernelInfo);
 
@@ -40,7 +38,7 @@ namespace Microsoft.DotNet.Interactive.SqlServer
 
             return kernel;
         }
-        
+
         private async Task InitializeDbContextAsync(string kernelName, MsSqlKernelConnector options, KernelInvocationContext context)
         {
             CSharpKernel csharpKernel = null;
@@ -114,7 +112,7 @@ foreach (var file in  new[] {{ model.ContextFile.Code }}.Concat(model.Additional
         // trim out the wrapping braces
         .Trim()
         .Trim( new[] {{ '{{', '}}' }} );
-                      
+
     code += fileCode;
 }}
 ";

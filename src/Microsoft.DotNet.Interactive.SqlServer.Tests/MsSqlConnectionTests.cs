@@ -24,8 +24,8 @@ namespace Microsoft.DotNet.Interactive.SqlServer.Tests
         private async Task<CompositeKernel> CreateKernelAsync()
         {
             var csharpKernel = new CSharpKernel().UseNugetDirective().UseValueSharing();
-            await csharpKernel.SubmitCodeAsync(@$"
-#r ""nuget:microsoft.sqltoolsservice,3.0.0-release.53""
+            await csharpKernel.SubmitCodeAsync(@"
+#r ""nuget:microsoft.sqltoolsservice,3.0.0-release.163""
 ");
 
             // TODO: remove SQLKernel it is used to test current patch
@@ -38,7 +38,8 @@ namespace Microsoft.DotNet.Interactive.SqlServer.Tests
 
             kernel.DefaultKernelName = csharpKernel.Name;
 
-            kernel.UseKernelClientConnection(new ConnectMsSqlCommand());
+            var sqlKernelExtension = new MsSqlKernelExtension();
+            await sqlKernelExtension.OnLoadAsync(kernel);
             kernel.UseNteractDataExplorer();
             kernel.UseSandDanceExplorer();
 
@@ -262,7 +263,42 @@ my_data_result");
                 .Be(1);
         }
 
-       
+        [MsSqlFact]
+        public async Task It_can_store_multiple_result_set_with_a_name()
+        {
+            var connectionString = MsSqlFactAttribute.GetConnectionStringForTests();
+            using var kernel = await CreateKernelAsync();
+            await kernel.SubmitCodeAsync(
+                $"#!connect --kernel-name adventureworks mssql \"{connectionString}\"");
+
+            // Run query with result set
+            await kernel.SubmitCodeAsync($@"
+#!sql-adventureworks --name my_data_result
+select * from sys.databases
+select * from sys.databases
+");
+
+            // Use share to fetch result set
+            var csharpResults = await kernel.SubmitCodeAsync($@"
+#!csharp
+#!share --from sql-adventureworks my_data_result
+my_data_result");
+
+            // Verify the variable loaded is of the correct type and has the expected number of result sets
+            var csharpEvents = csharpResults.KernelEvents.ToSubscribedList();
+            csharpEvents
+                .Should()
+                .ContainSingle<ReturnValueProduced>()
+                .Which
+                .Value
+                .Should()
+                .BeAssignableTo<IEnumerable<TabularDataResource>>()
+                .Which.Count()
+                .Should()
+                .Be(2);
+        }
+
+
         [MsSqlTheory]
         [InlineData("var testVar = 2;", 2)] // var
         [InlineData("string testVar = \"hi!\";", "hi!")] // string

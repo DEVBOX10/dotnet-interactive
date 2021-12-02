@@ -47,6 +47,7 @@
   <ItemGroup>
     <PackageReference Include="Humanizer" Version="2.8.26" />
     <PackageReference Include="Humanizer.Core" Version="2.8.26" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="Serilog" Version="2.10.0" />
     <PackageReference Include="Serilog.Sinks.RollingFileAlternate" Version="2.0.9" />
     <PackageReference Include="Pocket.Disposable" Version="1.1.0">
@@ -118,11 +119,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <TypescriptInputs Include="$(JsApiRoot)package.json" />
-    <TypescriptInputs Include="$(JsApiRoot)package-lock.json" />
-    <TypescriptInputs Include="$(JsApiRoot)rollup.config.js" />
-    <TypescriptInputs Include="$(JsApiRoot)tsconfig.json" />
-    <TypescriptInputs Include="$(JsApiRoot)src/**/*.ts" />
     <None Remove="resources\logo-456x456.png" />
     <None Remove="resources\logo-64x64.png" />
 
@@ -144,14 +140,6 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
-
-  <Target Name="InstallNodeModules">
-    <Exec Command="npm i" WorkingDirectory="$(JsApiRoot)" />
-  </Target>
-
-  <Target Name="CompileTypescript" Inputs="@(TypescriptInputs)" Outputs="@(TypescriptOutputFiles)" DependsOnTargets="InstallNodeModules" BeforeTargets="BeforeBuild" Condition="'$(NCrunch)' != '1' And '$(BuildingInsideVisualStudio)' != 'true'">
-    <Exec Command="npm run build" WorkingDirectory="$(JsApiRoot)" />
-  </Target>
 
   <Target Name="CopyKernelSpecificFiles" DependsOnTargets="PrepareKernels;CopyLogoFiles">
     <CreateItem Include="%(KernelFolders.Identity)/**/*.json" AdditionalMetadata="Destination=$([System.IO.Path]::GetFileName(%(KernelFolders.Identity)))">
