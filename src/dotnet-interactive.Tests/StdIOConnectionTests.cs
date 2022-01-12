@@ -87,5 +87,50 @@ namespace Microsoft.DotNet.Interactive.Tests
                 .Should()
                 .EventuallyContainSingle<HoverTextProduced>();
         }
+
+        [Fact]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "Test only enabled on windows platforms")]
+        public async Task it_can_reuse_connection_for_multiple_proxy_kernel()
+        {
+           
+            // setup connection
+
+            using var connector = new StdIoKernelConnector(new[]
+            {
+                Dotnet.Path.FullName,
+                typeof(App.Program).Assembly.Location,
+                "stdio",
+                "--default-kernel",
+                "csharp",
+            });
+
+            // use same connection to create 2 proxy kernel
+
+            using var localKernel1 = await connector.ConnectKernelAsync(new KernelInfo("kernel1"));
+
+            using var localKernel2 = await connector.ConnectKernelAsync(new KernelInfo("kernel2"));
+
+            var kernelCommand1 = new SubmitCode("(1+1).Display(\"text/plain\")");
+
+            var kernelCommand2 = new SubmitCode("(3+3).Display(\"text/plain\")");
+
+            var res1 = await localKernel1.SendAsync(kernelCommand1);
+
+            var res2 = await localKernel2.SendAsync(kernelCommand2);
+
+            var kernelEvents1 = res1.KernelEvents.ToSubscribedList();
+
+            var kernelEvents2 = res2.KernelEvents.ToSubscribedList();
+
+            kernelEvents1.Should().ContainSingle<CommandSucceeded>().Which.Command.As<SubmitCode>().Code.Should()
+                .Be(kernelCommand1.Code);
+
+            kernelEvents1.Should().ContainSingle<DisplayedValueProduced>().Which.FormattedValues.Should().ContainSingle(f => f.Value == "2");
+
+            kernelEvents2.Should().ContainSingle<CommandSucceeded>().Which.Command.As<SubmitCode>().Code.Should()
+                .Be(kernelCommand2.Code);
+
+            kernelEvents2.Should().ContainSingle<DisplayedValueProduced>().Which.FormattedValues.Should().ContainSingle(f => f.Value == "6");
+        }
     }
 }
