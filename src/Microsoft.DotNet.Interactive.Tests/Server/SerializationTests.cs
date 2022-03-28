@@ -11,15 +11,21 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Html;
 using Microsoft.CodeAnalysis;
 using Microsoft.DotNet.Interactive.Commands;
+using Microsoft.DotNet.Interactive.CSharpProject;
+using Microsoft.DotNet.Interactive.CSharpProject.Commands;
+using Microsoft.DotNet.Interactive.CSharpProject.Events;
+using Microsoft.DotNet.Interactive.CSharpProject.Tools;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Server;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Microsoft.DotNet.Interactive.ValueSharing;
+using Microsoft.DotNet.Interactive.VSCode;
 using Pocket;
 
 using Xunit;
 using Xunit.Abstractions;
+using Project = Microsoft.DotNet.Interactive.CSharpProject.Project;
 
 namespace Microsoft.DotNet.Interactive.Tests.Server
 {
@@ -30,6 +36,16 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
         public SerializationTests(ITestOutputHelper output)
         {
             _output = output;
+
+            KernelCommandEnvelope.RegisterCommand<OpenProject>();
+            KernelCommandEnvelope.RegisterCommand<OpenDocument>();
+            KernelCommandEnvelope.RegisterCommand<CompileProject>();
+            KernelEventEnvelope.RegisterEvent<ProjectOpened>();
+            KernelEventEnvelope.RegisterEvent<DocumentOpened>();
+            KernelEventEnvelope.RegisterEvent<AssemblyProduced>();
+
+            KernelCommandEnvelope.RegisterCommand<GetInput>();
+            KernelEventEnvelope.RegisterEvent<InputProduced>();
         }
 
         [Theory]
@@ -116,11 +132,26 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
         [Fact]
         public void All_command_types_are_tested_for_round_trip_serialization()
         {
-            var commandTypes = typeof(KernelCommand)
+            var interactiveCommands = typeof(Kernel)
                 .Assembly
                 .ExportedTypes
                 .Concrete()
                 .DerivedFrom(typeof(KernelCommand));
+
+            var projectKernelCommands = typeof(CSharpProjectKernel)
+                .Assembly
+                .ExportedTypes
+                .Concrete()
+                .DerivedFrom(typeof(KernelCommand));
+
+            var vscodeCommands = typeof(VSCodeClientKernelsExtension)
+                .Assembly
+                .ExportedTypes
+                .Concrete()
+                .DerivedFrom(typeof(KernelCommand));
+
+
+            var commandTypes = interactiveCommands.Concat(vscodeCommands).Concat(projectKernelCommands);
 
             Commands()
                 .Select(e => e[0].GetType())
@@ -128,15 +159,30 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                 .Should()
                 .BeEquivalentTo(commandTypes);
         }
-
+        
         [Fact]
         public void All_event_types_are_tested_for_round_trip_serialization()
         {
-            var eventTypes = typeof(KernelEvent)
-                             .Assembly
-                             .ExportedTypes
-                             .Concrete()
-                             .DerivedFrom(typeof(KernelEvent));
+
+            var interactiveEvents = typeof(Kernel)
+                .Assembly
+                .ExportedTypes
+                .Concrete()
+                .DerivedFrom(typeof(KernelEvent));
+
+            var projectKernelEvents = typeof(CSharpProjectKernel)
+                .Assembly
+                .ExportedTypes
+                .Concrete()
+                .DerivedFrom(typeof(KernelEvent));
+
+            var vscodeEvents = typeof(VSCodeClientKernelsExtension)
+                .Assembly
+                .ExportedTypes
+                .Concrete()
+                .DerivedFrom(typeof(KernelEvent));
+
+            var eventTypes = interactiveEvents.Concat(vscodeEvents).Concat(projectKernelEvents);
 
             Events()
                 .Select(e => e[0].GetType())
@@ -162,11 +208,17 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
 
                 yield return new ChangeWorkingDirectory("/path/to/somewhere");
 
+                yield return new CompileProject();
+
                 yield return new DisplayError("oops!");
 
                 yield return new DisplayValue(
                     new FormattedValue("text/html", "<b>hi!</b>")
                 );
+
+                yield return new OpenDocument("path");
+
+                yield return new OpenProject(new Project(new[] { new ProjectFile("Program.cs", "// file contents") }));
 
                 yield return new RequestCompletions("Cons", new LinePosition(0, 4), "csharp");
 
@@ -188,10 +240,13 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
 
                 yield return new Cancel("csharp");
 
+                yield return new RequestKernelInfo();
+
                 yield return new RequestValueInfos("csharp");
 
                 yield return new RequestValue("a", "csharp", HtmlFormatter.MimeType);
 
+                yield return new GetInput(prompt:"provide answer", isPassword: true, targetKernelName: "vscode");
             }
         }
 
@@ -208,6 +263,10 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
 
             IEnumerable<KernelEvent> events()
             {
+                var compileProject = new CompileProject();
+
+                yield return new AssemblyProduced(compileProject, new Base64EncodedAssembly("01020304"));
+
                 var submitCode = new SubmitCode("123");
 
                 yield return new CodeSubmissionReceived(
@@ -232,12 +291,13 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                     new[]
                     {
                         new CompletionItem(
-                            "WriteLine",
-                            "Method",
-                            "WriteLine",
-                            "WriteLine",
-                            "WriteLine",
-                            "Writes the line")
+                            displayText: "WriteLine",
+                            kind: "Method",
+                            filterText: "WriteLine",
+                            sortText: "WriteLine",
+                            insertText: "WriteLine",
+                            insertTextFormat: InsertTextFormat.Snippet,
+                            documentation: "Writes the line")
                     },
                     requestCompletion);
 
@@ -273,6 +333,10 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                         new FormattedValue("text/html", "<b>hi!</b>"),
                     });
 
+                var openDocument = new OpenDocument("path");
+
+                yield return new DocumentOpened(openDocument, new RelativeFilePath("path"), null, "file contents");
+
                 yield return new ErrorProduced("oops!", submitCode);
 
                 yield return new IncompleteCodeSubmissionReceived(submitCode);
@@ -284,6 +348,22 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                     new[] { new FormattedValue("text/markdown", "markdown") },
                     new LinePositionSpan(new LinePosition(1, 2), new LinePosition(3, 4)));
 
+                yield return new KernelInfoProduced(
+                    new KernelInfo("javascript", "javascript")
+                    {
+                        Aliases = new[] { "js" },
+                        DestinationUri = new Uri("kernel://vscode/javascript"),
+                        SupportedDirectives = new[]
+                        {
+                            new DirectiveInfo("#r")
+                        },
+                        SupportedKernelCommands = new[]
+                        {
+                            new KernelCommandInfo(nameof(SubmitCode))
+                        }
+                    },
+                    new RequestKernelInfo());
+
                 yield return new KernelReady();
 
                 yield return new PackageAdded(
@@ -294,6 +374,16 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                         packageRoot: "/the/package/root",
                         probingPaths: new[] { "/probing/path/1", "/probing/path/2" }),
                         new SubmitCode("#r \"nuget:ThePackage,1.2.3\""));
+
+                yield return new ProjectOpened(
+                    new OpenProject(new Project(new[]
+                    {
+                        new ProjectFile("Program.cs", "#region some-region\n#endregion"),
+                    })),
+                    new[]
+                    {
+                        new ProjectItem("./Program.cs", new[] { "some-region" })
+                    });
 
                 yield return new ReturnValueProduced(
                     new HtmlString("<b>hi!</b>"),
@@ -343,6 +433,8 @@ namespace Microsoft.DotNet.Interactive.Tests.Server
                 yield return new ValueProduced("raw value", "a", new FormattedValue(HtmlFormatter.MimeType, "<span>formatted value</span>"), new RequestValue("a", "csharp", HtmlFormatter.MimeType));
 
                 yield return new CommandCancelled( new Cancel() ,new SubmitCode("var value = 1;", "csharp"));
+
+                yield return new InputProduced("user input", new GetInput(targetKernelName: "vscode"));
             }
         }
 

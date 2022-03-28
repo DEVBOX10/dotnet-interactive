@@ -14,6 +14,7 @@ using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.FSharp;
 using Microsoft.DotNet.Interactive.PowerShell;
 using Microsoft.DotNet.Interactive.Tests.Utility;
+using Microsoft.DotNet.Interactive.Utility;
 using Microsoft.DotNet.Interactive.ValueSharing;
 using Xunit;
 
@@ -102,6 +103,8 @@ x")]
             string codeToWrite,
             string codeToRead)
         {
+            using var _ = await ConsoleLock.AcquireAsync();
+
             using var kernel = CreateKernel();
             
             await kernel.SubmitCodeAsync($"{from}\n{codeToWrite}");
@@ -186,6 +189,8 @@ x")]
             "#!share --from fsharp x")]
         public async Task pwsh_kernel_variables_shared_from_other_kernels_resolve_to_the_correct_runtime_type(string from, string codeToWrite, string codeToRead)
         {
+            using var _ = await ConsoleLock.AcquireAsync();
+
             using var kernel = CreateKernel();
 
             using var events = kernel.KernelEvents.ToSubscribedList();
@@ -207,61 +212,17 @@ x")]
                   .Be("2");
         }
 
-        [Fact(Skip = "not implemented")]
-        public async Task Directives_can_access_local_kernel_variables()
-        {
-            using var kernel = CreateKernel();
-            kernel.DefaultKernelName = "csharp";
-            var csharpKernel = (CSharpKernel) kernel.FindKernel("csharp");
-
-            using var events = kernel.KernelEvents.ToSubscribedList();
-            var receivedValue = 0;
-
-            var directive = new Command("#!grab")
-            {
-                new Argument<int>("x")
-            };
-            directive.Handler = CommandHandler.Create<KernelInvocationContext, int>((context, x) =>
-            {
-                return receivedValue = x;
-            });
-
-            csharpKernel.AddDirective(directive);
-
-            await kernel.SubmitCodeAsync("var x = 123;");
-            await kernel.SubmitCodeAsync("#!grab $x");
-
-            receivedValue.Should().Be(123);
-        }
-
         [Fact]
-        public async Task javascript_ProxyKernel_can_share_a_value_from_csharp()
+        public async Task JavaScript_ProxyKernel_can_share_a_value_from_csharp()
         {
-            using var kernel = new CompositeKernel
-            {
-                new CSharpKernel()
-            };
-            kernel.DefaultKernelName = "csharp";
-            using var remoteKernel = new FakeRemoteKernel();
+            var (compositeKernel, remoteKernel) = await CreateCompositeKernelWithJavaScriptProxyKernel();
 
-            var receiver = new MultiplexingKernelCommandAndEventReceiver(remoteKernel.Receiver);
-
-            using var host = new KernelHost(kernel, remoteKernel.Sender, receiver);
-
-            var _ = host.ConnectAsync();
-
-            var kernelInfo = new KernelInfo("javascript", null, new Uri("kernel://remote/js"));
-
-            var javascriptKernel = await host.CreateProxyKernelOnDefaultConnectorAsync(kernelInfo);
-            
-            javascriptKernel.UseValueSharing(new JavaScriptKernelValueDeclarer());
-
-            await kernel.SubmitCodeAsync("var csharpVariable = 123;");
+            await compositeKernel.SubmitCodeAsync("var csharpVariable = 123;");
 
             var submitCode = new SubmitCode(@"
 #!javascript
 #!share --from csharp csharpVariable");
-            await kernel.SendAsync(submitCode);
+            await compositeKernel.SendAsync(submitCode);
 
             var remoteCommands = remoteKernel.Sender.Commands;
 
@@ -271,6 +232,56 @@ x")]
                           .Code
                           .Should()
                           .Be("csharpVariable = 123;");
+        }
+
+        [Fact(Skip = "Requires kernel language")]
+        public async Task CSharpKernel_can_share_variable_from_JavaScript_via_a_ProxyKernel()
+        {
+            var (compositeKernel, remoteKernel) = await CreateCompositeKernelWithJavaScriptProxyKernel();
+            
+            remoteKernel.RegisterCommandHandler<RequestValue>((cmd, context) =>
+            {
+                context.Publish(new ValueProduced(null, "jsVariable", new FormattedValue(JsonFormatter.MimeType, "[1, 2, 3]"), cmd));
+                return Task.CompletedTask;
+            });
+
+            var submitCode = new SubmitCode(@"
+#!csharp
+#!share --from javascript jsVariable");
+            await compositeKernel.SendAsync(submitCode);
+
+            // TODO (CSharpKernel_can_share_variable_fro_JavaScript_ProxyKernel) write test
+            throw new NotImplementedException();
+        }
+
+        private static async Task<(CompositeKernel, FakeRemoteKernel)> CreateCompositeKernelWithJavaScriptProxyKernel()
+        {
+            var compositeKernel = new CompositeKernel
+            {
+                new CSharpKernel().UseValueSharing()
+            };
+            compositeKernel.DefaultKernelName = "csharp";
+            var remoteKernel = new FakeRemoteKernel();
+
+            var receiver = new MultiplexingKernelCommandAndEventReceiver(remoteKernel.Receiver);
+
+            var host = new KernelHost(compositeKernel, remoteKernel.Sender, receiver);
+
+            var _ = host.ConnectAsync();
+
+            var kernelInfo = new KernelInfo("javascript")
+            {
+                DestinationUri = new("kernel://remote/js")
+            };
+
+            var javascriptKernel = await host.CreateProxyKernelOnDefaultConnectorAsync(kernelInfo);
+
+            javascriptKernel.UseValueSharing(new JavaScriptKernelValueDeclarer());
+
+            compositeKernel.RegisterForDisposal(remoteKernel);
+            compositeKernel.RegisterForDisposal(host);
+
+            return (compositeKernel, remoteKernel);
         }
 
         private static CompositeKernel CreateKernel()

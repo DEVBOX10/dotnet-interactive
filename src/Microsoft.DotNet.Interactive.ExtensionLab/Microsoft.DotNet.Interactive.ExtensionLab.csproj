@@ -21,47 +21,7 @@
     <None Remove="bin\**" />
   </ItemGroup>
 
-  <!-- nteract explorer resources -->
 
-  <PropertyGroup>
-    <nteractJsApiRoot>$(MSBuildThisFileDirectory)/../Microsoft.DotNet.Interactive.nteract.js/</nteractJsApiRoot>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <None Include="Inspector\LICENSE.SharpLab" />
-    <None Include="Inspector\README.md" />
-
-    <nteractTypescriptOutputFiles Include="$(nteractJsApiRoot)dist/nteractapi.js" />
-
-    <EmbeddedResource Include="@(nteractTypescriptOutputFiles)" LogicalName="$(AssemblyName).resources.%(FileName)%(Extension)" />
-  </ItemGroup>
-
-  <!-- mermaid resources -->
-
-  <PropertyGroup>
-    <mermaidJsApiRoot>$(MSBuildThisFileDirectory)/../Microsoft.DotNet.Interactive.Mermaid.js/</mermaidJsApiRoot>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <mermaidJavascriptOutputFiles Include="$(mermaidJsApiRoot)dist/mermaidapi.js" />
-
-    <EmbeddedResource Include="@(mermaidJavascriptOutputFiles)" LogicalName="$(AssemblyName).resources.%(FileName)%(Extension)" />
-  </ItemGroup>
-
-  <!-- sanddance resources -->
-
-  <PropertyGroup>
-    <sanddanceJsApiRoot>$(MSBuildThisFileDirectory)/../Microsoft.DotNet.Interactive.SandDance.js/</sanddanceJsApiRoot>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <None Include="Inspector\LICENSE.SharpLab" />
-    <None Include="Inspector\README.md" />
-
-    <SandDanceTypescriptOutputFiles Include="$(sanddanceJsApiRoot)dist/sanddanceapi.js" />
-
-    <EmbeddedResource Include="@(SandDanceTypescriptOutputFiles)" LogicalName="$(AssemblyName).resources.%(FileName)%(Extension)" />
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Analysis" Version="0.18.0" />

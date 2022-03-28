@@ -25,7 +25,7 @@ namespace Microsoft.DotNet.Interactive.Server
 
         static KernelEventEnvelope()
         {
-            ResetToDefaults();
+            RegisterDefaults();
         }
 
         internal static Type EventTypeByName(string name) => _eventTypesByEventTypeName[name];
@@ -46,11 +46,15 @@ namespace Microsoft.DotNet.Interactive.Server
 
         public static void RegisterEvent<TEvent>() where TEvent : KernelEvent
         {
-            _envelopeTypesByEventTypeName[typeof(TEvent).Name] = typeof(KernelEventEnvelope<TEvent>);
-            _eventTypesByEventTypeName[typeof(TEvent).Name] = typeof(TEvent);
+            RegisterEvent(typeof(TEvent));       }
+
+        public static void RegisterEvent(Type eventType) 
+        {
+            _envelopeTypesByEventTypeName[eventType.Name] = typeof(KernelEventEnvelope<>).MakeGenericType(eventType);
+            _eventTypesByEventTypeName[eventType.Name] = eventType;
         }
 
-        public static void ResetToDefaults()
+        public static void RegisterDefaults()
         {
             _envelopeTypesByEventTypeName = new Dictionary<string, Type>
             {
@@ -67,6 +71,7 @@ namespace Microsoft.DotNet.Interactive.Server
                 [nameof(ErrorProduced)] = typeof(KernelEventEnvelope<ErrorProduced>),
                 [nameof(IncompleteCodeSubmissionReceived)] = typeof(KernelEventEnvelope<IncompleteCodeSubmissionReceived>),
                 [nameof(HoverTextProduced)] = typeof(KernelEventEnvelope<HoverTextProduced>),
+                [nameof(KernelInfoProduced)] = typeof(KernelEventEnvelope<KernelInfoProduced>),
                 [nameof(KernelReady)] = typeof(KernelEventEnvelope<KernelReady>),
                 [nameof(PackageAdded)] = typeof(KernelEventEnvelope<PackageAdded>),
                 [nameof(ReturnValueProduced)] = typeof(KernelEventEnvelope<ReturnValueProduced>),

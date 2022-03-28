@@ -4,7 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
-using System.CommandLine.Invocation;
+using System.CommandLine.Completions;
+using System.CommandLine.NamingConventionBinder;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -15,7 +16,6 @@ using Microsoft.AspNetCore.Html;
 using Microsoft.Data.Analysis;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
-using Microsoft.DotNet.Interactive.ExtensionLab;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.ML;
@@ -32,21 +32,24 @@ namespace Microsoft.DotNet.Interactive.ExtensionLab
             {
                 if (kernel is CSharpKernel cSharpKernel)
                 {
+                    var showCodeOption = new Option<bool>("--show-code", "Display the C# code for the generated DataFrame types");
+
+                    var variableNameArg = new Argument<string>("variable-name", "The name of the variable to replace")
+                        .AddCompletions(ctx => cSharpKernel.ScriptState
+                                                           .Variables
+                                                           .Where(v => v.Value is DataFrame)
+                                                           .Select(v => new CompletionItem(v.Name)));
                     var command = new Command("#!linqify", "Replaces the specified Microsoft.Data.Analysis.DataFrame with a derived type for LINQ access to the contained data")
                     {
-                        new Option<bool>("--show-code", "Display the C# code for the generated DataFrame types"),
-                        new Argument<string>("variable-name", "The name of the variable to replace")
-                            .AddSuggestions((_,match) => cSharpKernel.ScriptState
-                                                                   .Variables
-                                                                   .Where(v => v.Value is DataFrame)
-                                                                   .Select(v => v.Name))
+                        showCodeOption,
+                        variableNameArg
                     };
 
                     cSharpKernel.AddDirective(command);
 
-                    command.Handler = CommandHandler.Create<string, bool, KernelInvocationContext>(CompileStuff);
+                    command.Handler = CommandHandler.Create(Linqify);
 
-                    async Task CompileStuff(
+                    async Task Linqify(
                         string variableName,
                         bool showCode,
                         KernelInvocationContext context)
@@ -61,7 +64,6 @@ namespace Microsoft.DotNet.Interactive.ExtensionLab
                             {
                                 context.Display(code);
                             }
-
 
                             cSharpKernel.TryGetValue(variableName, out DataFrame oldFrame);
 
@@ -169,16 +171,6 @@ namespace Microsoft.ML
 
     public static class DataViewExtensions
     {
-        public static SandDanceDataExplorer ExploreWithSandDance(this IDataView source)
-        {
-            return source.ToTabularDataResource().ExploreWithSandDance();
-        }
-
-        public static NteractDataExplorer ExploreWithNteract(this IDataView source)
-        {
-            return source.ToTabularDataResource().ExploreWithNteract();
-        }
-
         private static T GetValue<T>(ValueGetter<T> valueGetter)
         {
             T value = default;

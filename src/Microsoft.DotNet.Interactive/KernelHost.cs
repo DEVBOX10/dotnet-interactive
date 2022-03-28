@@ -23,7 +23,7 @@ namespace Microsoft.DotNet.Interactive
         private IDisposable _kernelEventSubscription;
         private readonly Dictionary<Kernel, KernelInfo> _kernelInfos = new();
         private readonly Dictionary<Uri,Kernel> _destinationUriToKernel = new ();
-        private readonly IKernelConnector _defaultConnector;
+        private readonly KernelConnectorBase _defaultConnector;
         private readonly Dictionary<Uri, Kernel> _originUriToKernel = new();
 
         public KernelHost(CompositeKernel kernel, IKernelCommandAndEventSender defaultSender, MultiplexingKernelCommandAndEventReceiver defaultReceiver, Uri hostUri)
@@ -50,7 +50,7 @@ namespace Microsoft.DotNet.Interactive
             return new KernelHost(kernel, sender, receiver);
         }
 
-        private class DefaultKernelConnector : IKernelConnector
+        private class DefaultKernelConnector : KernelConnectorBase
         {
             private readonly IKernelCommandAndEventSender _defaultSender;
             private readonly MultiplexingKernelCommandAndEventReceiver _defaultReceiver;
@@ -61,11 +61,16 @@ namespace Microsoft.DotNet.Interactive
                 _defaultReceiver = defaultReceiver;
             }
 
-            public Task<Kernel> ConnectKernelAsync(KernelInfo kernelInfo)
+            public override Task<Kernel> ConnectKernelAsync(KernelInfo kernelInfo)
             {
                 var proxy = new ProxyKernel(kernelInfo.LocalName, _defaultReceiver.CreateChildReceiver(), _defaultSender);
                 var _ = proxy.StartAsync();
                 return Task.FromResult((Kernel)proxy);
+            }
+
+            public void Dispose()
+            {
+                _defaultReceiver.Dispose();
             }
         }
 
@@ -95,34 +100,13 @@ namespace Microsoft.DotNet.Interactive
                     }
                     else if (commandOrEvent.Command is { })
                     {
-                        var kernel = GetKernel(commandOrEvent.Command);
-                        var _ = kernel.SendAsync(commandOrEvent.Command, _cancellationTokenSource.Token);
+                        var _ = _kernel.SendAsync(commandOrEvent.Command, _cancellationTokenSource.Token);
                     }
                 }
-            }, _cancellationTokenSource.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            }, _cancellationTokenSource.Token, 
+                                                 TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
             await _defaultSender.NotifyIsReadyAsync(_cancellationTokenSource.Token);
-        }
-
-        private Kernel GetKernel(KernelCommand command)
-        {
-            // QUESTION: (GetKernel) coverage indicates we can delete some of this?
-            if (command.DestinationUri is { } && TryGetKernelByOriginUri(command.DestinationUri, out var kernel))
-            {
-                return kernel;
-            }
-
-            if (command.DestinationUri is { } && TryGetKernelByDestinationUri(command.DestinationUri, out  kernel))
-            {
-                return kernel;
-            }
-
-            if (command.OriginUri is { } && TryGetKernelByOriginUri(command.DestinationUri, out kernel))
-            {
-                return kernel;
-            }
-
-            return _kernel;
         }
 
         public async Task ConnectAndWaitAsync()
@@ -215,35 +199,40 @@ namespace Microsoft.DotNet.Interactive
             }
         }
 
-        private void RegisterDestinationUriForProxy(string proxyLocalKernelName, Uri destinationUri)
+        internal void RegisterDestinationUriForProxy(ProxyKernel proxyKernel, Uri destinationUri)
+        {
+            if (proxyKernel == null)
+            {
+                throw new ArgumentNullException(nameof(proxyKernel));
+            }
+
+            if (destinationUri == null)
+            {
+                throw new ArgumentNullException(nameof(destinationUri));
+            }
+
+            if (TryGetKernelInfo(proxyKernel, out var kernelInfo))
+            {
+                if (kernelInfo.DestinationUri is { })
+                {
+                    _destinationUriToKernel.Remove(kernelInfo.DestinationUri);
+                }
+
+                kernelInfo.DestinationUri = destinationUri;
+                _destinationUriToKernel[kernelInfo.DestinationUri] = proxyKernel;
+            }
+            else
+            {
+                throw new ArgumentException($"Unknown kernel name : {proxyKernel.Name}");
+            }
+        }
+
+        internal void RegisterDestinationUriForProxy(string proxyLocalKernelName, Uri destinationUri)
         {
             var childKernel = _kernel.FindKernel(proxyLocalKernelName);
             if (childKernel is ProxyKernel proxyKernel)
             {
-                if (proxyKernel == null)
-                {
-                    throw new ArgumentNullException(nameof(proxyKernel));
-                }
-
-                if (destinationUri == null)
-                {
-                    throw new ArgumentNullException(nameof(destinationUri));
-                }
-            
-                if (TryGetKernelInfo(proxyKernel, out var kernelInfo))
-                {
-                    if (kernelInfo.DestinationUri is { })
-                    {
-                        _destinationUriToKernel.Remove(kernelInfo.DestinationUri);
-                    }
-
-                    kernelInfo.DestinationUri = destinationUri;
-                    _destinationUriToKernel[kernelInfo.DestinationUri] = proxyKernel;
-                }
-                else
-                {
-                    throw new ArgumentException($"Unknown kernel name : {proxyKernel.Name}");
-                }
+                RegisterDestinationUriForProxy(proxyKernel, destinationUri);
             }
             else
             {
@@ -257,9 +246,9 @@ namespace Microsoft.DotNet.Interactive
             return childKernel;
         }
 
-        public async Task<ProxyKernel> CreateProxyKernelOnConnectorAsync(KernelInfo kernelInfo, IKernelConnector kernelConnector )
+        public async Task<ProxyKernel> CreateProxyKernelOnConnectorAsync(KernelInfo kernelInfo, KernelConnectorBase kernelConnectorBase )
         {
-            var childKernel = await kernelConnector.ConnectKernelAsync(kernelInfo) as ProxyKernel;
+            var childKernel = await kernelConnectorBase.ConnectKernelAsync(kernelInfo) as ProxyKernel;
             _kernel.Add(childKernel, kernelInfo.Aliases);
             RegisterDestinationUriForProxy(kernelInfo.LocalName, kernelInfo.DestinationUri);
             return childKernel;

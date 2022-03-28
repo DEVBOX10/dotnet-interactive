@@ -13,11 +13,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Microsoft.DotNet.Interactive\Microsoft.DotNet.Interactive.csproj" />
+    <ProjectReference Include="..\Microsoft.DotNet.Interactive.CSharpProject\Microsoft.DotNet.Interactive.CSharpProject.csproj" />
     <ProjectReference Include="..\Microsoft.DotNet.Interactive.VSCode\Microsoft.DotNet.Interactive.VSCode.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.21308.1" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta3.22101.1" />
   </ItemGroup>
 
 </Project>

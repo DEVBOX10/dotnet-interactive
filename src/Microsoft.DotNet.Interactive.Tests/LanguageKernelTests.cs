@@ -4,6 +4,7 @@
 using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.CommandLine.NamingConventionBinder;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
@@ -655,37 +656,6 @@ $${languageSpecificCode}
                 .Diagnostics
                 .Should()
                 .ContainSingle(diag => diag.LinePositionSpan.Start.Line == line);
-        }
-
-        [Theory]
-        [InlineData(Language.CSharp)]
-        [InlineData(Language.FSharp)]
-        [InlineData(Language.PowerShell)]
-        public async Task when_a_sequence_of_diagnostics_requests_is_fired_diagnostics_are_produced_only_for_the_latest_request(Language language)
-        {
-            var kernel = CreateKernel(language);
-           
-            var results = await Task.WhenAll(
-                kernel.SendAsync(new RequestDiagnostics("C")),
-                kernel.SendAsync(new RequestDiagnostics("Co")),
-                kernel.SendAsync(new RequestDiagnostics("Con")),
-                kernel.SendAsync(new RequestDiagnostics("Cons")), 
-                kernel.SendAsync(new RequestDiagnostics("Conso"))
-            );
-
-           var events = results.SelectMany(r => r.KernelEvents.ToSubscribedList()).ToList();
-
-           events.Select(e => e.GetType())
-               .Where(t => t == typeof(CommandSucceeded)).Should()
-               .HaveCount(5);
-
-           events.Should().ContainSingle<DiagnosticsProduced>()
-                .Which
-                .Command
-                .As<RequestDiagnostics>()
-                .Code
-                .Should()
-                .Be("Conso");
         }
 
         [Theory]

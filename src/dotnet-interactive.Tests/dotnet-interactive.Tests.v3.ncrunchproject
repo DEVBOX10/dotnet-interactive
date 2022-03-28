@@ -1,7 +1,7 @@
 ﻿<ProjectConfiguration>
   <Settings>
     <AdditionalFilesToIncludeForProject>
-      <Value>..\dotnet-interactive-vscode\common\interfaces\contracts.ts</Value>
+      <Value>..\microsoft-dotnet-interactive\src\contracts.ts</Value>
     </AdditionalFilesToIncludeForProject>
     <DefaultTestTimeout>25000</DefaultTestTimeout>
     <HiddenComponentWarnings>
@@ -44,6 +44,9 @@
       <NamedTestSelector>
         <TestName>Microsoft.DotNet.Interactive.Tests.StdIOConnectionTests.it_can_reuse_connection_for_multiple_proxy_kernel</TestName>
       </NamedTestSelector>
+      <FixtureTestSelector>
+        <FixtureName>Microsoft.DotNet.Interactive.App.Tests.StdioConnectionTests</FixtureName>
+      </FixtureTestSelector>
     </IgnoredTests>
   </Settings>
 </ProjectConfiguration>

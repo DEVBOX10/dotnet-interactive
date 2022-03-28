@@ -4,10 +4,9 @@
 using System.Threading.Tasks;
 
 #nullable enable
-namespace Microsoft.DotNet.Interactive.Connection
+namespace Microsoft.DotNet.Interactive.Connection;
+
+public abstract class KernelConnectorBase
 {
-    public interface IKernelConnector
-    {
-        Task<Kernel> ConnectKernelAsync(KernelInfo kernelInfo);
-    }
+    public abstract Task<Kernel> ConnectKernelAsync(KernelInfo kernelInfo);
 }

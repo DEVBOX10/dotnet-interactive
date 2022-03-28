@@ -1,4 +1,4 @@
-﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
+// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
@@ -9,7 +9,6 @@ using System.CommandLine.Parsing;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
@@ -25,16 +24,9 @@ namespace Microsoft.DotNet.Interactive.Parsing
         public SubmissionParser(Kernel kernel)
         {
             _kernel = kernel ?? throw new ArgumentNullException(nameof(kernel));
-            KernelLanguage = kernel switch
-            {
-                CompositeKernel c => c.DefaultKernelName,
-                _ => kernel.Name
-            };
         }
 
-        public IReadOnlyList<ICommand> Directives => _rootCommand?.Children.OfType<ICommand>().ToArray() ?? Array.Empty<ICommand>();
-
-        public string KernelLanguage { get; internal set; }
+        public IReadOnlyList<Command> Directives => _rootCommand?.Subcommands ?? Array.Empty<Command>();
 
         public PolyglotSyntaxTree Parse(string code, string language = null)
         {
@@ -42,7 +34,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
             var parser = new PolyglotSyntaxParser(
                 sourceText,
-                language ?? KernelLanguage,
+                language ?? DefaultKernelName(),
                 GetDirectiveParser(),
                 GetSubkernelDirectiveParsers());
 
@@ -81,7 +73,9 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
             var tree = Parse(code, originalCommand.TargetKernelName);
             var nodes = tree.GetRoot().ChildNodes.ToArray();
-            var targetKernelName = originalCommand.TargetKernelName ?? KernelLanguage;
+
+            var targetKernelName = originalCommand.TargetKernelName ?? DefaultKernelName();
+            
             var lastCommandScope = originalCommand.SchedulingScope;
             KernelNameDirectiveNode lastKernelNameNode = null;
 
@@ -133,7 +127,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
                         if (parseResult.CommandResult.Command.Name == "#r")
                         {
-                            var value = parseResult.ValueForArgument<PackageReferenceOrFileInfo>("package");
+                            var value = parseResult.GetValueForArgument(parseResult.Parser.FindPackageArgument());
 
                             if (value?.Value is FileInfo)
                             {
@@ -233,17 +227,26 @@ namespace Microsoft.DotNet.Interactive.Parsing
                     }
                 }
 
-                if (commands.All(c => c.GetType() == 
-                                      originalCommand.GetType() 
-                                      && (
-                                          c.TargetKernelName == originalCommand.TargetKernelName||c.TargetKernelName == commands[0].TargetKernelName)))
+                if (commands.All(c => c.GetType() == originalCommand.GetType() && 
+                                      (c.TargetKernelName == originalCommand.TargetKernelName 
+                                       || c.TargetKernelName == commands[0].TargetKernelName)))
                 {
-                    
                     return true;
                 }
-                
+
                 return false;
             }
+        }
+
+        private string DefaultKernelName()
+        {
+            var kernelName = _kernel switch
+            {
+                CompositeKernel c => c.DefaultKernelName,
+                _ => _kernel.Name
+            };
+            
+            return kernelName;
         }
 
         internal IDictionary<string, (SchedulingScope commandScope, Func<Parser> getParser)> GetSubkernelDirectiveParsers()
@@ -283,9 +286,9 @@ namespace Microsoft.DotNet.Interactive.Parsing
                     new CommandLineBuilder(_rootCommand)
                         .ParseResponseFileAs(ResponseFileHandling.Disabled)
                         .UseTypoCorrections()
-                        .UseHelpBuilder(bc => new DirectiveHelpBuilder(_rootCommand.Name))
+                        .UseHelpBuilder(_ => new DirectiveHelpBuilder(_rootCommand.Name))
                         .UseHelp()
-                        .UseMiddleware(
+                        .AddMiddleware(
                             context =>
                             {
                                 context.BindingContext
@@ -319,6 +322,20 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
             EnsureRootCommandIsInitialized();
 
+            var existingAliases = _rootCommand
+                                  .Children
+                                  .OfType<Command>()
+                                  .SelectMany(c => c.Aliases)
+                                  .ToArray();
+
+            foreach (var alias in command.Aliases)
+            {
+                if (existingAliases.Contains(alias))
+                {
+                    throw new ArgumentException($"Alias '{alias}' is already in use.");
+                }
+            }
+
             _rootCommand.Add(command);
 
             ResetParser();
@@ -338,8 +355,8 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
             var kind = symbol switch
             {
-                IOption _ => "Property",
-                ICommand _ => "Method",
+                Option _ => "Property",
+                Command _ => "Method",
                 _ => "Value"
             };
 

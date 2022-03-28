@@ -41,7 +41,7 @@ If the contract change is deliberate, then the TypeScript contracts file '{inter
 
 Please run the following:
 
-dotnet run -p src/interface-generator -- --out-file {contractFile.FullName}
+dotnet run --project src/interface-generator -- --out-file {contractFile.FullName}
 
 ");
         }
@@ -49,7 +49,7 @@ dotnet run -p src/interface-generator -- --out-file {contractFile.FullName}
         [Fact]
         public void vscode_generated_TypeScript_interfaces_file_has_known_shape()
         {
-            CheckTypeScriptInterfaceFile("src/dotnet-interactive-vscode/common/interfaces/contracts.ts");
+            CheckTypeScriptInterfaceFile("src/microsoft-dotnet-interactive/src/contracts.ts");
         }
     }
 }
