@@ -16,10 +16,12 @@ export type MessageHandler = {
 export function hashBangConnect(clientMapper: ClientMapper, messageHandlerMap: Map<string, MessageHandler>, controllerPostMessage: (_: any) => void, documentUri: vscodeLike.Uri) {
     Logger.default.info(`handling #!connect for ${documentUri.toString()}`);
     hashBangConnectPrivate(clientMapper, messageHandlerMap, controllerPostMessage, documentUri);
-    clientMapper.onClientCreate(documentUri, (_client) => {
-        Logger.default.info(`reconnecting webview kernels for ${documentUri.toString()}`);
-        hashBangConnectPrivate(clientMapper, messageHandlerMap, controllerPostMessage, documentUri);
-        return Promise.resolve();
+    clientMapper.onClientCreate((clientUri, _client) => {
+        if (clientUri.toString() === documentUri.toString()) {
+            Logger.default.info(`reconnecting webview kernels for ${documentUri.toString()}`);
+            hashBangConnectPrivate(clientMapper, messageHandlerMap, controllerPostMessage, documentUri);
+            return Promise.resolve();
+        }
     });
 }
 
@@ -52,7 +54,7 @@ function hashBangConnectPrivate(clientMapper: ClientMapper, messageHandlerMap: M
         const proxyJsKernel = new ProxyKernel('javascript', documentWebViewTrasport);
         client.kernel.add(proxyJsKernel, ['js']);
 
-        client.kernelHost.registerDestinationUriForProxy(proxyJsKernel.name, "kernel://webview/javascript");
+        client.kernelHost.registerRemoteUriForProxy(proxyJsKernel.name, "kernel://webview/javascript");
 
         documentWebViewTrasport.setCommandHandler(envelope => {
             const kernel = client.kernelHost.getKernel(envelope);
@@ -61,7 +63,7 @@ function hashBangConnectPrivate(clientMapper: ClientMapper, messageHandlerMap: M
         });
 
         client.channel.subscribeToKernelEvents(eventEnvelope => {
-            Logger.default.info(`forwarding event to webview ${eventEnvelope.toString()}`);
+            Logger.default.info(`forwarding event to webview ${JSON.stringify(eventEnvelope)}`);
             return documentWebViewTrasport.publishKernelEvent(eventEnvelope);
         });
 

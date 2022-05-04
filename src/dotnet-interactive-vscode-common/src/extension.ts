@@ -32,6 +32,7 @@ import { CompositeKernel } from './dotnet-interactive/compositeKernel';
 import { Logger, LogLevel } from './dotnet-interactive/logger';
 import { ChildProcessLineAdapter } from './childProcessLineAdapter';
 import { NotebookParserServer } from './notebookParserServer';
+import { registerVariableExplorer } from './variableExplorer';
 
 export const KernelIdForJupyter = 'dotnet-interactive-for-jupyter';
 
@@ -181,8 +182,8 @@ export async function activate(context: vscode.ExtensionContext) {
         configureKernel,
     };
     const clientMapper = new ClientMapper(clientMapperConfig);
-
     registerKernelCommands(context, clientMapper);
+    registerVariableExplorer(context, clientMapper);
 
     const hostVersionSuffix = isInsidersBuild() ? 'Insiders' : 'Stable';
     diagnosticsChannel.appendLine(`Extension started for VS Code ${hostVersionSuffix}.`);
@@ -206,6 +207,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(vscode.workspace.onDidCloseNotebookDocument(notebookDocument => clientMapper.closeClient(notebookDocument.uri)));
     context.subscriptions.push(vscode.workspace.onDidRenameFiles(e => handleFileRenames(e, clientMapper)));
+
+    // clean up processes
+    context.subscriptions.push(serializerLineAdapter);
+    clientMapper.onClientCreate((_uri, client) => {
+        context.subscriptions.push(client);
+    });
 
     // language registration
     context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(async e => await updateNotebookCellLanguageInMetadata(e)));

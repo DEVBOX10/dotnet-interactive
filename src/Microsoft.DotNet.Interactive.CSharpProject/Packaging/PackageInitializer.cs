@@ -3,17 +3,14 @@
 
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
-using Clockwise;
 using Microsoft.DotNet.Interactive.Utility;
-using Newtonsoft.Json.Linq;
 
 namespace Microsoft.DotNet.Interactive.CSharpProject.Packaging
 {
     public class PackageInitializer : IPackageInitializer
     {
-        private readonly Func<DirectoryInfo, Budget, Task> afterCreate;
+        private readonly Func<DirectoryInfo, Task> afterCreate;
 
         public string Template { get; }
 
@@ -25,7 +22,7 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Packaging
             string template,
             string projectName,
             string language = null,
-            Func<DirectoryInfo, Budget, Task> afterCreate = null)
+            Func<DirectoryInfo, Task> afterCreate = null)
         {
             if (string.IsNullOrWhiteSpace(template))
             {
@@ -44,31 +41,19 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Packaging
             Language = language ?? GetLanguageFromProjectName(ProjectName);
         }
 
-        public virtual async Task Initialize(
-            DirectoryInfo directory,
-            Budget budget = null)
+        public virtual async Task InitializeAsync(
+            DirectoryInfo directory)
         {
-            budget = budget ?? new Budget();
-
             var dotnet = new Dotnet(directory);
-
-            // lock sdk to 6.0.200, aka. net6.0
-            var result = await dotnet.New("globaljson", "--sdk-version 6.0.100");
-            result.ThrowOnFailure($"Error creating global.json in {directory.FullName}");
-            var gbFile = directory.GetFiles("global.json").Single();
-            var gj = JObject.Parse(File.ReadAllText(gbFile.FullName));
-
-            gj["sdk"]["rollForward"] = "latestMinor";
-            File.WriteAllText(gbFile.FullName, gj.ToString(Newtonsoft.Json.Formatting.Indented));
-
-            result = await dotnet
-                             .New(Template,
-                                  args: $"--name \"{ProjectName}\" --language \"{Language}\" --output \"{directory.FullName}\"");
+            
+            var result = await dotnet
+                         .New(Template,
+                              args: $"--name \"{ProjectName}\" --language \"{Language}\" --output \"{directory.FullName}\"");
             result.ThrowOnFailure($"Error initializing in {directory.FullName}");
 
             if (afterCreate != null)
             {
-                await afterCreate(directory, budget);
+                await afterCreate(directory);
             }
         }
 

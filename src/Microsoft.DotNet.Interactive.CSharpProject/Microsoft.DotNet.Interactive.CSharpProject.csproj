@@ -37,7 +37,6 @@
   <ItemGroup>
     <PackageReference Include="Buildalyzer" Version="4.1.2" />
     <PackageReference Include="Buildalyzer.Workspaces" Version="4.1.2" />
-    <PackageReference Include="Clockwise" Version="1.0.261-beta" />
     <PackageReference Include="Markdig.Signed" Version="0.23.0" />
     <PackageReference Include="Microsoft.AspNetCore.Html.Abstractions" Version="2.2.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="$(MicrosoftCodeAnalysisCommonVersion)" />
@@ -51,8 +50,8 @@
     <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.Common" Version="$(MicrosoftCodeAnalysisCommonVersion)" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.0" />
     <PackageReference Include="NewtonSoft.Json" Version="13.0.1" />
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta3.22101.1" />
-    <PackageReference Include="System.CommandLine.NamingConventionBinder" Version="2.0.0-beta3.22101.1" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta3.22220.1" />
+    <PackageReference Include="System.CommandLine.NamingConventionBinder" Version="2.0.0-beta3.22220.1" />
     <PackageReference Include="System.Reactive" Version="5.0.0" />
     <PackageReference Include="Pocket.Disposable" Version="1.1.0">
       <PrivateAssets>all</PrivateAssets>

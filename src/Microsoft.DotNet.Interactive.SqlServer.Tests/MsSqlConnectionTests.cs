@@ -10,7 +10,6 @@ using FluentAssertions;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
-using Microsoft.DotNet.Interactive.ExtensionLab;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Formatting.Csv;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
@@ -50,7 +49,7 @@ namespace Microsoft.DotNet.Interactive.SqlServer.Tests
             var connectionString = MsSqlFactAttribute.GetConnectionStringForTests();
             using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
-                             $"#!connect --kernel-name adventureworks mssql \"{connectionString}\"");
+                             $"#!connect mssql --kernel-name adventureworks \"{connectionString}\"");
 
             result.KernelEvents
                   .ToSubscribedList()
@@ -81,7 +80,7 @@ SELECT TOP 100 * FROM Person.Person
             var connectionString = MsSqlFactAttribute.GetConnectionStringForTests();
             using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
-                $"#!connect --kernel-name adventureworks mssql \"{connectionString}\"");
+                $"#!connect mssql --kernel-name adventureworks \"{connectionString}\"");
 
             result.KernelEvents
                 .ToSubscribedList()
@@ -116,7 +115,7 @@ SELECT TOP 100 * FROM Person.Person
 
             using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
-                             $"#!connect --kernel-name adventureworks mssql \"{connectionString}\" --create-dbcontext");
+                             $"#!connect mssql --kernel-name adventureworks \"{connectionString}\" --create-dbcontext");
 
             var events = result.KernelEvents.ToSubscribedList();
 
@@ -142,7 +141,7 @@ SELECT TOP 100 * FROM Person.Person
             var connectionString = MsSqlFactAttribute.GetConnectionStringForTests();
             using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
-                             $"#!connect --kernel-name adventureworks mssql \"{connectionString}\"");
+                             $"#!connect mssql --kernel-name adventureworks \"{connectionString}\"");
 
             result.KernelEvents
                   .ToSubscribedList()
@@ -173,7 +172,7 @@ select * from sys.databases
             var connectionString = MsSqlFactAttribute.GetConnectionStringForTests();
             using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
-                $"#!connect --kernel-name adventureworks mssql \"{connectionString}\"");
+                $"#!connect mssql --kernel-name adventureworks \"{connectionString}\"");
 
             result.KernelEvents
                 .ToSubscribedList()
@@ -203,7 +202,7 @@ select * from sys.databases
             var connectionString = MsSqlFactAttribute.GetConnectionStringForTests();
             using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
-                             $"#!connect --kernel-name adventureworks mssql \"{connectionString}\"");
+                             $"#!connect mssql --kernel-name adventureworks \"{connectionString}\"");
 
             result.KernelEvents
                   .ToSubscribedList()
@@ -233,7 +232,7 @@ drop table dbo.EmptyTable;
             var connectionString = MsSqlFactAttribute.GetConnectionStringForTests();
             using var kernel = await CreateKernelAsync();
             await kernel.SubmitCodeAsync(
-                             $"#!connect --kernel-name adventureworks mssql \"{connectionString}\"");
+                             $"#!connect mssql --kernel-name adventureworks \"{connectionString}\"");
 
             // Run query with result set
             await kernel.SubmitCodeAsync($@"
@@ -267,7 +266,7 @@ my_data_result");
             var connectionString = MsSqlFactAttribute.GetConnectionStringForTests();
             using var kernel = await CreateKernelAsync();
             await kernel.SubmitCodeAsync(
-                $"#!connect --kernel-name adventureworks mssql \"{connectionString}\"");
+                $"#!connect mssql --kernel-name adventureworks \"{connectionString}\"");
 
             // Run query with result set
             await kernel.SubmitCodeAsync($@"
@@ -296,6 +295,11 @@ my_data_result");
                 .Be(2);
         }
 
+        public static readonly IEnumerable<object[]> SharedObjectVariables =
+            new List<object[]>
+            {
+                new object[] { "Guid testVar = Guid.Parse(\"4df65065-2369-4d63-a6b0-20dc7cdd02fe\");", Guid.Parse("4df65065-2369-4d63-a6b0-20dc7cdd02fe") } // GUID
+            };
 
         [MsSqlTheory]
         [InlineData("var testVar = 2;", 2)] // var
@@ -312,11 +316,12 @@ my_data_result");
         [InlineData("int testVar = 123456;", 123456)] // int
         [InlineData("long testVar = 123456789012345;", 123456789012345)] // long
         [InlineData("short testVar = 123;", (short)123)] // short
+        [MemberData(nameof(SharedObjectVariables))]
         public async Task Shared_variable_can_be_used_to_parameterize_a_sql_query(string csharpVariableDeclaration, object expectedValue, Type changeType = null)
         {
             using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
-                             $"#!connect --kernel-name adventureworks mssql \"{MsSqlFactAttribute.GetConnectionStringForTests()}\"");
+                             $"#!connect mssql --kernel-name adventureworks \"{MsSqlFactAttribute.GetConnectionStringForTests()}\"");
 
             result.KernelEvents
                 .ToSubscribedList()
@@ -354,7 +359,7 @@ select @testVar";
         {
             using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
-                             $"#!connect --kernel-name adventureworks mssql \"{MsSqlFactAttribute.GetConnectionStringForTests()}\"");
+                             $"#!connect mssql --kernel-name adventureworks \"{MsSqlFactAttribute.GetConnectionStringForTests()}\"");
 
             result.KernelEvents
                 .ToSubscribedList()
@@ -400,7 +405,7 @@ select @x, @y";
             using var kernel = await CreateKernelAsync();
 
             var result = await kernel.SubmitCodeAsync(
-                             $"#!connect --kernel-name adventureworks mssql \"{MsSqlFactAttribute.GetConnectionStringForTests()}\"");
+                             $"#!connect mssql --kernel-name adventureworks \"{MsSqlFactAttribute.GetConnectionStringForTests()}\"");
 
             result.KernelEvents
                 .ToSubscribedList()
