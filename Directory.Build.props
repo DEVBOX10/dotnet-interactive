@@ -15,8 +15,10 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <MicrosoftNETTestSdkVersion>17.2.0</MicrosoftNETTestSdkVersion>
+    <NewtonsoftJsonVersion>13.0.1 </NewtonsoftJsonVersion>
     <SystemReactiveVersion>5.0.0</SystemReactiveVersion>
-    <MicrosoftCodeAnalysisCommonVersion>4.1.0</MicrosoftCodeAnalysisCommonVersion>
+    <MicrosoftCodeAnalysisCommonVersion>4.2.0</MicrosoftCodeAnalysisCommonVersion>
   </PropertyGroup>
 
   <PropertyGroup>

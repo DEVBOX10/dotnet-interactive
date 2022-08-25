@@ -30,13 +30,13 @@ using Microsoft.DotNet.Interactive.FSharp;
 using Microsoft.DotNet.Interactive.Http;
 using Microsoft.DotNet.Interactive.Jupyter;
 using Microsoft.DotNet.Interactive.Jupyter.Formatting;
+using Microsoft.DotNet.Interactive.Mermaid;
 using Microsoft.DotNet.Interactive.PowerShell;
 using Microsoft.DotNet.Interactive.Telemetry;
 using Microsoft.DotNet.Interactive.VSCode;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Pocket;
-using Recipes;
 using static Pocket.Logger;
 
 using Formatter = Microsoft.DotNet.Interactive.Formatting.Formatter;
@@ -77,8 +77,7 @@ public static class CommandLineParser
         StartNotebookParser startNotebookParser = null,
         StartHttp startHttp = null,
         Action onServerStarted = null,
-        ITelemetry telemetry = null,
-        IFirstTimeUseNoticeSentinel firstTimeUseNoticeSentinel = null)
+        TelemetrySender telemetrySender = null)
     {
         var operation = Log.OnEnterAndExit();
 
@@ -103,81 +102,18 @@ public static class CommandLineParser
         jupyter ??= JupyterCommand.Do;
 
         startKernelHost ??= KernelHostLauncher.Do;
-            
+
         startNotebookParser ??= ParseNotebookCommand.Do;
 
         startHttp ??= HttpCommand.Do;
 
-        var isVSCode = false;
-
         // Setup first time use notice sentinel.
-        firstTimeUseNoticeSentinel ??= new FirstTimeUseNoticeSentinel(VersionSensor.Version().AssemblyInformationalVersion);
-
-        var clearTextProperties = new[]
-        {
-            "frontend"
-        };
+        var buildInfo = BuildInfo.GetBuildInfo(typeof(Program).Assembly);
 
         // Setup telemetry.
-        telemetry ??= new Telemetry.Telemetry(
-            VersionSensor.Version().AssemblyInformationalVersion,
-            firstTimeUseNoticeSentinel,
-            "dotnet/interactive/cli");
-
-        var filter = new TelemetryFilter(
-            Sha256Hasher.HashWithNormalizedCasing,
-            clearTextProperties,
-            (commandResult, directives, entryItems) =>
-            {
-                    
-
-                // add frontend
-                var frontendTelemetryAdded = false;
-
-                // check if is codespaces
-                if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CODESPACES")))
-                {
-                    frontendTelemetryAdded = true;
-                    isVSCode = true;
-                    entryItems.Add(new KeyValuePair<string, string>("frontend", "gitHubCodeSpaces"));
-                }
-
-                if (!frontendTelemetryAdded)
-                {
-                    foreach (var directive in directives)
-                    {
-                        switch (directive.Key)
-                        {
-                            case "jupyter":
-                            case "synapse":
-                            case "vscode":
-                                frontendTelemetryAdded = true;
-                                isVSCode = directive.Key.ToLowerInvariant() == "vscode";
-                                entryItems.Add(new KeyValuePair<string, string>("frontend", directive.Key));
-                                break;
-                        }
-                    }
-                }
-
-                if (!frontendTelemetryAdded)
-                {
-                    switch (commandResult.Command.Name)
-                    {
-                        case "jupyter":
-                            entryItems.Add(new KeyValuePair<string, string>("frontend", commandResult.Command.Name));
-                            frontendTelemetryAdded = true;
-                            break;
-                    }
-                }
-
-                if(!frontendTelemetryAdded){
-                    var frontendName = Environment.GetEnvironmentVariable("DOTNET_INTERACTIVE_FRONTEND_NAME");
-                    if(string.IsNullOrWhiteSpace(frontendName)){
-                        frontendName = "unknown";
-                    }
-                    entryItems.Add(new KeyValuePair<string, string>("frontend", frontendName));                    
-                }
-            });
+        telemetrySender ??= new TelemetrySender(
+            buildInfo.AssemblyInformationalVersion,
+            new FirstTimeUseNoticeSentinel(buildInfo.AssemblyInformationalVersion));
 
         var verboseOption = new Option<bool>(
             "--verbose",
@@ -202,7 +138,8 @@ public static class CommandLineParser
         rootCommand.AddCommand(Jupyter());
         rootCommand.AddCommand(StdIO());
         rootCommand.AddCommand(NotebookParser());
-        rootCommand.AddCommand(HttpServer());
+
+        var filter = new StartupTelemetryEventBuilder(Sha256Hasher.ToSha256HashWithNormalizedCasing);
 
         return new CommandLineBuilder(rootCommand)
             .UseDefaults()
@@ -210,17 +147,17 @@ public static class CommandLineParser
             {
                 if (context.ParseResult.Errors.Count == 0)
                 {
-                    telemetry.SendFiltered(filter, context.ParseResult);
+                    telemetrySender.TrackStartupEvent(context.ParseResult, filter);
                 }
 
                 // If sentinel does not exist, print the welcome message showing the telemetry notification.
-                if (!Telemetry.Telemetry.SkipFirstTimeExperience &&
-                    !firstTimeUseNoticeSentinel.Exists())
+                if (!TelemetrySender.SkipFirstTimeExperience &&
+                    !telemetrySender.FirstTimeUseNoticeSentinelExists())
                 {
                     context.Console.Out.WriteLine();
-                    context.Console.Out.WriteLine(Telemetry.Telemetry.WelcomeMessage);
+                    context.Console.Out.WriteLine(TelemetrySender.WelcomeMessage);
 
-                    firstTimeUseNoticeSentinel.CreateIfNotExists();
+                    telemetrySender.CreateFirstTimeUseNoticeSentinelIfNotExists();
                 }
 
                 await next(context);
@@ -268,7 +205,7 @@ public static class CommandLineParser
                 pathOption
             };
 
-            installCommand.Handler = CommandHandler.Create<IConsole, InvocationContext, HttpPortRange, DirectoryInfo>(InstallHandler);
+            installCommand.Handler = CommandHandler.Create<InvocationContext, HttpPortRange, DirectoryInfo>((context, httpPortRange, path) => JupyterInstallHandler(httpPortRange, path, context));
 
             jupyterCommand.AddCommand(installCommand);
 
@@ -279,32 +216,13 @@ public static class CommandLineParser
                 var frontendEnvironment = new HtmlNotebookFrontendEnvironment();
                 var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions);
 
-                kernel.Add(
-                    new JavaScriptKernel(),
-                    new[] { "js" });
+                await new JupyterClientKernelExtension().OnLoadAsync(kernel);
 
                 services.AddKernel(kernel);
 
-                kernel.VisitSubkernels(k =>
-                {
-                    switch (k)
-                    {
-                        case CSharpKernel csharpKernel:
-                            csharpKernel.UseJupyterHelpers();
-                            break;
-                        case FSharpKernel fsharpKernel:
-                            fsharpKernel.UseJupyterHelpers();
-                            break;
-                        case PowerShellKernel powerShellKernel:
-                            powerShellKernel.UseJupyterHelpers();
-                            break;
-                    }
-                });
-
-
                 var clientSideKernelClient = new SignalRBackchannelKernelClient();
 
-                services.AddSingleton(c => ConnectionInformation.Load(options.ConnectionFile))
+                services.AddSingleton(_ => ConnectionInformation.Load(options.ConnectionFile))
                     .AddSingleton(clientSideKernelClient)
                     .AddSingleton(c =>
                     {
@@ -318,69 +236,11 @@ public static class CommandLineParser
                 return result;
             }
 
-            Task<int> InstallHandler(IConsole console, InvocationContext context, HttpPortRange httpPortRange, DirectoryInfo path)
+            Task<int> JupyterInstallHandler(HttpPortRange httpPortRange, DirectoryInfo path, InvocationContext context)
             {
-                var jupyterInstallCommand = new JupyterInstallCommand(console, new JupyterKernelSpecInstaller(console), httpPortRange, path);
+                var jupyterInstallCommand = new JupyterInstallCommand(context.Console, new JupyterKernelSpecInstaller(context.Console), httpPortRange, path);
                 return jupyterInstallCommand.InvokeAsync();
             }
-        }
-
-        Command HttpServer()
-        {
-            var httpPortOption = new Option<HttpPort>(
-                "--http-port",
-                description: "Specifies the port on which to enable HTTP services",
-                parseArgument: result =>
-                {
-                    if (result.Tokens.Count == 0)
-                    {
-                        return HttpPort.Auto;
-                    }
-
-                    var source = result.Tokens[0].Value;
-
-                    if (source == "*")
-                    {
-                        return HttpPort.Auto;
-                    }
-
-                    if (!int.TryParse(source, out var portNumber))
-                    {
-                        result.ErrorMessage = "Must specify a port number or *.";
-                        return null;
-                    }
-
-                    return new HttpPort(portNumber);
-                },
-                isDefault: true);
-
-            var httpCommand = new Command("http", "Starts dotnet-interactive with kernel functionality exposed over http")
-            {
-                defaultKernelOption,
-                httpPortOption
-            };
-
-            httpCommand.Handler = CommandHandler.Create<StartupOptions, KernelHttpOptions, IConsole, InvocationContext>(
-                (startupOptions, options, console, context) =>
-                {
-                    var frontendEnvironment = new BrowserFrontendEnvironment();
-                    var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions);
-
-                    kernel.Add(
-                        new JavaScriptKernel(),
-                        new[] { "js" });
-
-                    services.AddKernel(kernel)
-                        .AddSingleton(new SignalRBackchannelKernelClient());
-
-                    onServerStarted ??= () =>
-                    {
-                        console.Out.WriteLine("Application started. Press Ctrl+C to shut down.");
-                    };
-                    return startHttp(startupOptions, console, startServer, context);
-                });
-
-            return httpCommand;
         }
 
         Command StdIO()
@@ -449,21 +309,32 @@ public static class CommandLineParser
                         ? new HtmlNotebookFrontendEnvironment()
                         : new BrowserFrontendEnvironment();
 
-                    var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions);
+                    var kernel = CreateKernel(
+                        options.DefaultKernel, 
+                        frontendEnvironment, 
+                        startupOptions);
 
                     services.AddKernel(kernel);
 
-                    kernel = kernel.UseQuitCommand();
+                    kernel.UseQuitCommand();
+
+                    var sender = KernelCommandAndEventSender.FromTextWriter(
+                        Console.Out,
+                        KernelHost.CreateHostUri("stdio"));
+
+                    var receiver = KernelCommandAndEventReceiver.FromTextReader(Console.In);
 
                     var host = kernel.UseHost(
-                        new KernelCommandAndEventTextStreamSender(
-                            Console.Out,
-                            KernelHost.CreateHostUri("stdio")),
-                        new MultiplexingKernelCommandAndEventReceiver(new KernelCommandAndEventTextReaderReceiver(Console.In)), KernelHost.CreateHostUriForCurrentProcessId());
+                        sender,
+                        receiver,
+                        KernelHost.CreateHostUriForCurrentProcessId());
+
+                    var isVSCode = context.ParseResult.Directives.Contains("vscode") ||
+                                   !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CODESPACES"));
 
                     if (isVSCode)
                     {
-                        var vscodeSetup = new VSCodeClientKernelsExtension();
+                        var vscodeSetup = new VSCodeClientKernelExtension();
                         await vscodeSetup.OnLoadAsync(kernel);
                     }
                        
@@ -589,7 +460,6 @@ public static class CommandLineParser
                 .UseNugetDirective()
                 .UseKernelHelpers()
                 .UseWho()
-                .UseDefaultNamespaces()
                 .UseMathAndLaTeX()
                 .UseValueSharing(),
             new[] { "f#", "F#" });
@@ -600,13 +470,15 @@ public static class CommandLineParser
                 .UseValueSharing(),
             new[] { "powershell" });
 
-
         compositeKernel.Add(
             new HtmlKernel());
 
         compositeKernel.Add(
             new KeyValueStoreKernel()
                 .UseWho());
+
+        compositeKernel.Add(
+            new MermaidKernel());
 
         var kernel = compositeKernel
             .UseDefaultMagicCommands()

@@ -10,7 +10,6 @@ using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Interactive.Commands;
@@ -48,7 +47,17 @@ namespace Microsoft.DotNet.Interactive.Parsing
             SplitSubmission(
                 submitCode,
                 submitCode.Code,
-                (languageNode, parent, kernelNameNode) => new SubmitCode(languageNode, submitCode.SubmissionType, parent, kernelNameNode));
+                (languageNode, parent, kernelNameNode) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(languageNode.Text))
+                    {
+                        return new SubmitCode(languageNode, submitCode.SubmissionType, parent, kernelNameNode);
+                    }
+                    else
+                    {
+                        return null;
+                    }
+                });
 
         public IReadOnlyList<KernelCommand> SplitSubmission(RequestDiagnostics requestDiagnostics)
         {
@@ -91,25 +100,59 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
                         if (parseResult.Errors.Any())
                         {
-                            if (directiveNode.IsUnknownActionDirective())
+                            bool accept = false;
+                            AnonymousKernelCommand sendExtraDiagnostics = null;
+
+                            if (directiveNode is ActionDirectiveNode adn)
                             {
-                                commands.Add(createCommand(directiveNode, originalCommand, lastKernelNameNode));
+                                if (IsUnknownDirective(adn) && (adn.IsCompilerDirective || AcceptUnknownDirective(adn)))
+                                {
+                                    accept = true;
+                                }
+                                else
+                                {
+                                    sendExtraDiagnostics = new((c, context) =>
+                                    {
+                                        var diagnostic = new Interactive.Diagnostic(
+                                            adn.GetLinePositionSpan(),
+                                            CodeAnalysis.DiagnosticSeverity.Error,
+                                            "NI0001", // QUESTION: (SplitSubmission) what code should this be?
+                                            "Unrecognized magic command");
+                                        var diagnosticsProduced = new DiagnosticsProduced(new[] { diagnostic }, c);
+                                        context.Publish(diagnosticsProduced);
+                                        return Task.CompletedTask;
+                                    });
+                                }
+                            }
+
+                            if (accept)
+                            {
+                                var command = createCommand(directiveNode, originalCommand, lastKernelNameNode);
+                                command.KernelChooserParseResult = lastKernelNameNode?.GetDirectiveParseResult();
+                                commands.Add(command);
                             }
                             else
                             {
                                 commands.Clear();
+
+                                if (sendExtraDiagnostics is {})
+                                {
+                                    commands.Add(sendExtraDiagnostics);
+                                }
+
                                 commands.Add(
                                     new AnonymousKernelCommand((_, context) =>
                                     {
                                         var message =
                                             string.Join(Environment.NewLine,
-                                                parseResult.Errors
-                                                    .Select(e => e.ToString()));
+                                                        parseResult.Errors
+                                                                   .Select(e => e.ToString()));
 
                                         context.Fail(originalCommand, message: message);
                                         return Task.CompletedTask;
                                     }, parent: originalCommand));
                             }
+
                             break;
                         }
 
@@ -166,9 +209,21 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
                     case LanguageNode languageNode:
                     {
-                        var kernelCommand = createCommand(languageNode, originalCommand, lastKernelNameNode);
-                        kernelCommand.KernelChooserParseResult = lastKernelNameNode?.GetDirectiveParseResult();
-                        commands.Add(kernelCommand);
+                        if (commands.Count > 0 &&
+                            commands[commands.Count - 1] is SubmitCode previous)
+                        {
+                            previous.Code += languageNode.Text;
+                        }
+                        else
+                        {
+                            var command = createCommand(languageNode, originalCommand, lastKernelNameNode);
+
+                            if (command is { })
+                            {
+                                command.KernelChooserParseResult = lastKernelNameNode?.GetDirectiveParseResult();
+                                commands.Add(command);
+                            }
+                        }
                     }
                         break;
 
@@ -238,6 +293,21 @@ namespace Microsoft.DotNet.Interactive.Parsing
                 }
 
                 return false;
+            }
+
+            static bool IsUnknownDirective(ActionDirectiveNode adn) =>
+                adn.GetDirectiveParseResult().Errors.All(e => e.SymbolResult?.Symbol is RootCommand);
+
+            bool AcceptUnknownDirective(ActionDirectiveNode node)
+            {
+                var kernel = _kernel switch
+                {
+                    // The parent kernel is the one where a directive would be defined, and therefore the one that should decide whether to accept this submission. 
+                    CompositeKernel composite => composite.FindKernel(node.ParentKernelName),
+                    _ => _kernel
+                };
+
+                return kernel.AcceptsUnknownDirectives;
             }
         }
 
@@ -312,10 +382,15 @@ namespace Microsoft.DotNet.Interactive.Parsing
         {
             errorMessage = null;
             replacementTokens = null;
-
+            
             if (ContainsInvalidCharactersForValueReference(tokenToReplace.AsSpan()))
             {
                 // F# verbatim strings should not be replaced but it's hard to detect them because the quotes are also stripped away by the tokenizer, so we use slashes as a proxy to detect file paths
+                return false;
+            }
+
+            if (KernelInvocationContext.Current?.Command is not SubmitCode)
+            {
                 return false;
             }
 
@@ -326,44 +401,63 @@ namespace Microsoft.DotNet.Interactive.Parsing
                     ? (_kernel.Name, parts[0])
                     : (parts[0], parts[1]);
 
-            var result = _kernel.RootKernel.SendAsync(new RequestValue(valueName, targetKernelName)).GetAwaiter().GetResult();
-
-            var events = result.KernelEvents.ToEnumerable().ToArray();
-            var valueProduced = events.OfType<ValueProduced>().SingleOrDefault();
-
-            if (valueProduced is { } &&
-                valueProduced.FormattedValue.MimeType == "application/json")
+            if (targetKernelName is "input" or "password")
             {
-                var stringValue = valueProduced.FormattedValue.Value;
+                var inputRequest = new RequestInput($"Please enter a value for field \"{valueName}\".", isPassword: targetKernelName == "password");
 
-                var jsonDoc = JsonDocument.Parse(stringValue);
+                var result = _kernel.RootKernel.SendAsync(inputRequest).GetAwaiter().GetResult();
 
-                object interpolatedValue = jsonDoc.RootElement.ValueKind switch
+                var events = result.KernelEvents.ToEnumerable().ToArray();
+                var valueProduced = events.OfType<InputProduced>().SingleOrDefault();
+
+                if (valueProduced is { })
                 {
-                    JsonValueKind.True => true,
-                    JsonValueKind.False => false,
-                    JsonValueKind.String => jsonDoc.Deserialize<string>(),
-                    JsonValueKind.Number => jsonDoc.Deserialize<double>(),
-
-                    _ => null
-                };
-
-                if (interpolatedValue is { })
-                {
-                    replacementTokens = new[] { $"{interpolatedValue}" };
-                    return true;
+                    replacementTokens = new[] { valueProduced.Value };
                 }
-                else
-                {
-                    errorMessage = $"Value @{tokenToReplace} cannot be interpolated into magic command:\n{stringValue}";
-                    return false;
-                }
+
+                return true;
             }
             else
             {
-                errorMessage = events.OfType<CommandFailed>().Last().Message;
+                var result = _kernel.RootKernel.SendAsync(new RequestValue(valueName, targetKernelName)).GetAwaiter().GetResult();
 
-                return false;
+                var events = result.KernelEvents.ToEnumerable().ToArray();
+                var valueProduced = events.OfType<ValueProduced>().SingleOrDefault();
+
+                if (valueProduced is { } &&
+                    valueProduced.FormattedValue.MimeType == "application/json")
+                {
+                    var stringValue = valueProduced.FormattedValue.Value;
+
+                    var jsonDoc = JsonDocument.Parse(stringValue);
+
+                    object interpolatedValue = jsonDoc.RootElement.ValueKind switch
+                    {
+                        JsonValueKind.True => true,
+                        JsonValueKind.False => false,
+                        JsonValueKind.String => jsonDoc.Deserialize<string>(),
+                        JsonValueKind.Number => jsonDoc.Deserialize<double>(),
+
+                        _ => null
+                    };
+
+                    if (interpolatedValue is { })
+                    {
+                        replacementTokens = new[] { $"{interpolatedValue}" };
+                        return true;
+                    }
+                    else
+                    {
+                        errorMessage = $"Value @{tokenToReplace} cannot be interpolated into magic command:\n{stringValue}";
+                        return false;
+                    }
+                }
+                else
+                {
+                    errorMessage = events.OfType<CommandFailed>().Last().Message;
+
+                    return false;
+                }
             }
 
             static bool ContainsInvalidCharactersForValueReference(ReadOnlySpan<char> tokenToReplace)

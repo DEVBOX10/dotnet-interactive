@@ -11,13 +11,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="FluentAssertions" Version="5.10.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="$(NewtonsoftJsonVersion)" />
+    <PackageReference Include="FluentAssertions" Version="6.7.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="FSharp.Core.xml">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Compile Include="HtmlFormatterTests.fs" />
     <Compile Include="KernelTests.fs" />
   </ItemGroup>

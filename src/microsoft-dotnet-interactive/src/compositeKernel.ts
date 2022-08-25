@@ -1,26 +1,27 @@
 // Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+import { tryAddUriToRoutingSlip } from "./connection";
 import * as contracts from "./contracts";
-import { Kernel } from "./kernel";
+import { getKernelUri, IKernelCommandInvocation, Kernel, KernelType } from "./kernel";
 import { KernelHost } from "./kernelHost";
-import { KernelInfo } from "./contracts";
+import { KernelInvocationContext } from "./kernelInvocationContext";
 
 export class CompositeKernel extends Kernel {
-
-
     private _host: KernelHost | null = null;
-    private readonly _namesTokernelMap: Map<string, Kernel> = new Map();
-    private readonly _kernelToNamesMap: Map<Kernel, Set<string>> = new Map();
+    private readonly _defaultKernelNamesByCommandType: Map<contracts.KernelCommandType, string> = new Map();
 
     defaultKernelName: string | undefined;
+    private _childKernels: KernelCollection;
 
     constructor(name: string) {
         super(name);
+        this.kernelType = KernelType.composite;
+        this._childKernels = new KernelCollection(this);
     }
 
     get childKernels() {
-        return [...this._kernelToNamesMap.keys()];
+        return Array.from(this._childKernels);
     }
 
     get host(): KernelHost | null {
@@ -30,16 +31,15 @@ export class CompositeKernel extends Kernel {
     set host(host: KernelHost | null) {
         this._host = host;
         if (this._host) {
-            this._host.addKernelInfo(this, { localName: this.name.toLowerCase(), aliases: [], supportedDirectives: [], supportedKernelCommands: [] });
+            this.kernelInfo.uri = this._host.uri;
+            this._childKernels.notifyThatHostWasSet();
+        }
+    }
 
-            for (let kernel of this.childKernels) {
-                let aliases = [];
-                for (let name of this._kernelToNamesMap.get(kernel)!) {
-                    if (name !== kernel.name) {
-                        aliases.push(name.toLowerCase());
-                    }
-                }
-                this._host.addKernelInfo(kernel, { localName: kernel.name.toLowerCase(), aliases: [...aliases], supportedDirectives: [], supportedKernelCommands: [] });
+    protected override async handleRequestKernelInfo(invocation: IKernelCommandInvocation): Promise<void> {
+        for (let kernel of this._childKernels) {
+            if (kernel.supportsCommand(invocation.commandEnvelope.commandType)) {
+                await kernel.handleCommand({ command: {}, commandType: contracts.RequestKernelInfoType });
             }
         }
     }
@@ -49,58 +49,220 @@ export class CompositeKernel extends Kernel {
             throw new Error("kernel cannot be null or undefined");
         }
 
-        kernel.parentKernel = this;
-        kernel.rootKernel = this.rootKernel;
-        kernel.subscribeToKernelEvents(event => {
-            this.publishEvent(event);
-        });
-        this._namesTokernelMap.set(kernel.name.toLowerCase(), kernel);
-
-        let kernelNames = new Set<string>();
-        kernelNames.add(kernel.name);
-        if (aliases) {
-            aliases.forEach(alias => {
-                this._namesTokernelMap.set(alias.toLowerCase(), kernel);
-                kernelNames.add(alias.toLowerCase());
-            });
+        if (!this.defaultKernelName) {
+            // default to first kernel
+            this.defaultKernelName = kernel.name;
         }
 
-        this._kernelToNamesMap.set(kernel, kernelNames);
+        kernel.parentKernel = this;
+        kernel.rootKernel = this.rootKernel;
+        kernel.kernelEvents.subscribe({
+            next: (event) => {
+                event;//?
+                tryAddUriToRoutingSlip(event, getKernelUri(this));
+                event;//?
+                this.publishEvent(event);
+            }
+        });
 
-        let kernelInfo: KernelInfo = {
-            localName: kernel.name,
-            aliases: aliases === undefined ? [] : [...aliases],
-            languageName: "",
-            supportedKernelCommands: [],
-            supportedDirectives: []
-        };
+        if (aliases) {
+            let set = new Set(aliases);
 
-        this.host?.addKernelInfo(kernel, kernelInfo);
+            if (kernel.kernelInfo.aliases) {
+                for (let alias in kernel.kernelInfo.aliases) {
+                    set.add(alias);
+                }
+            }
+
+            kernel.kernelInfo.aliases = Array.from(set);
+        }
+
+        this._childKernels.add(kernel, aliases);
+
+        const invocationContext = KernelInvocationContext.current;
+
+        if (invocationContext) {
+            invocationContext.commandEnvelope;//?
+            invocationContext.publish({
+                eventType: contracts.KernelInfoProducedType,
+                event: <contracts.KernelInfoProduced>{
+                    kernelInfo: kernel.kernelInfo
+                },
+                command: invocationContext.commandEnvelope
+            });
+        } else {
+            this.publishEvent({
+                eventType: contracts.KernelInfoProducedType,
+                event: <contracts.KernelInfoProduced>{
+                    kernelInfo: kernel.kernelInfo
+                }
+            });
+        }
     }
 
-    findKernelByName(kernelName: string): Kernel | undefined {
-        return this._namesTokernelMap.get(kernelName.toLowerCase());
+    setDefaultTargetKernelNameForCommand(commandType: contracts.KernelCommandType, kernelName: string) {
+        this._defaultKernelNamesByCommandType.set(commandType, kernelName);
     }
-
-    handleCommand(commandEnvelope: contracts.KernelCommandEnvelope): Promise<void> {
+    override handleCommand(commandEnvelope: contracts.KernelCommandEnvelope): Promise<void> {
+        const invocationContext = KernelInvocationContext.current;
 
         let kernel = commandEnvelope.command.targetKernelName === this.name
             ? this
-            : this.getTargetKernel(commandEnvelope.command);
+            : this.getHandlingKernel(commandEnvelope, invocationContext);
+
+
+        const previusoHandlingKernel = invocationContext?.handlingKernel ?? null;
 
         if (kernel === this) {
-            return super.handleCommand(commandEnvelope);
+            if (invocationContext !== null) {
+                invocationContext.handlingKernel = kernel;
+            }
+            return super.handleCommand(commandEnvelope).finally(() => {
+                if (invocationContext !== null) {
+                    invocationContext.handlingKernel = previusoHandlingKernel;
+                }
+            });
         } else if (kernel) {
-            return kernel.handleCommand(commandEnvelope);
+            if (invocationContext !== null) {
+                invocationContext.handlingKernel = kernel;
+            }
+            tryAddUriToRoutingSlip(commandEnvelope, getKernelUri(kernel));
+            return kernel.handleCommand(commandEnvelope).finally(() => {
+                if (invocationContext !== null) {
+                    invocationContext.handlingKernel = previusoHandlingKernel;
+                }
+            });
         }
 
+        if (invocationContext !== null) {
+            invocationContext.handlingKernel = previusoHandlingKernel;
+        }
         return Promise.reject(new Error("Kernel not found: " + commandEnvelope.command.targetKernelName));
     }
 
-    getTargetKernel(command: contracts.KernelCommand): Kernel | undefined {
-        let targetKernelName = command.targetKernelName ?? this.defaultKernelName;
+    override getHandlingKernel(commandEnvelope: contracts.KernelCommandEnvelope, context?: KernelInvocationContext | null): Kernel | null {
 
-        let kernel = targetKernelName === undefined ? this : this.findKernelByName(targetKernelName);
+        let kernel: Kernel | null = null;
+        if (commandEnvelope.command.destinationUri) {
+            kernel = this._childKernels.tryGetByUri(commandEnvelope.command.destinationUri) ?? null;
+            if (kernel) {
+                return kernel;
+            }
+        }
+        let targetKernelName = commandEnvelope.command.targetKernelName;
+
+        if (targetKernelName === undefined || targetKernelName === null) {
+            if (this.canHandle(commandEnvelope)) {
+                return this;
+            }
+
+            targetKernelName = this._defaultKernelNamesByCommandType.get(commandEnvelope.commandType) ?? this.defaultKernelName;
+        }
+
+        if (targetKernelName !== undefined && targetKernelName !== null) {
+            kernel = this._childKernels.tryGetByAlias(targetKernelName) ?? null;
+        }
+
+        if (!kernel) {
+            if (this._childKernels.count === 1) {
+                kernel = this._childKernels.single() ?? null;
+            }
+        }
+
+        if (!kernel) {
+            kernel = context?.handlingKernel ?? null;
+        }
+        return kernel ?? this;
+
+    }
+}
+
+class KernelCollection implements Iterable<Kernel> {
+
+    private _compositeKernel: CompositeKernel;
+    private _kernels: Kernel[] = [];
+    private _nameAndAliasesByKernel: Map<Kernel, Set<string>> = new Map<Kernel, Set<string>>();
+    private _kernelsByNameOrAlias: Map<string, Kernel> = new Map<string, Kernel>();
+    private _kernelsByLocalUri: Map<string, Kernel> = new Map<string, Kernel>();
+    private _kernelsByRemoteUri: Map<string, Kernel> = new Map<string, Kernel>();
+
+    constructor(compositeKernel: CompositeKernel) {
+        this._compositeKernel = compositeKernel;
+    }
+
+    [Symbol.iterator](): Iterator<Kernel> {
+        let counter = 0;
+        return {
+            next: () => {
+                return {
+                    value: this._kernels[counter++],
+                    done: counter > this._kernels.length //?
+                };
+            }
+        };
+    }
+
+    single(): Kernel | undefined {
+        return this._kernels.length === 1 ? this._kernels[0] : undefined;
+    }
+
+
+    public add(kernel: Kernel, aliases?: string[]): void {
+        this.updateKernelInfoAndIndex(kernel, aliases);
+        this._kernels.push(kernel);
+    }
+
+
+    get count(): number {
+        return this._kernels.length;
+    }
+
+    updateKernelInfoAndIndex(kernel: Kernel, aliases?: string[]): void {
+        if (!this._nameAndAliasesByKernel.has(kernel)) {
+
+            let set = new Set<string>();
+
+            for (let alias of kernel.kernelInfo.aliases) {
+                set.add(alias);
+            }
+
+            kernel.kernelInfo.aliases = Array.from(set);
+
+            set.add(kernel.kernelInfo.localName);
+
+            this._nameAndAliasesByKernel.set(kernel, set);
+        }
+        if (aliases) {
+            for (let alias of aliases) {
+                this._nameAndAliasesByKernel.get(kernel)!.add(alias);
+            }
+        }
+
+        this._nameAndAliasesByKernel.get(kernel)?.forEach(alias => {
+            this._kernelsByNameOrAlias.set(alias, kernel);
+        });
+
+        if (this._compositeKernel.host) {
+            kernel.kernelInfo.uri = `${this._compositeKernel.host.uri}/${kernel.name}`;//?
+            this._kernelsByLocalUri.set(kernel.kernelInfo.uri, kernel);
+        }
+
+        if (kernel.kernelType === KernelType.proxy) {
+            this._kernelsByRemoteUri.set(kernel.kernelInfo.remoteUri!, kernel);
+        }
+    }
+
+    public tryGetByAlias(alias: string): Kernel | undefined {
+        return this._kernelsByNameOrAlias.get(alias);
+    }
+
+    public tryGetByUri(uri: string): Kernel | undefined {
+        let kernel = this._kernelsByLocalUri.get(uri) || this._kernelsByRemoteUri.get(uri);
         return kernel;
+    }
+    notifyThatHostWasSet() {
+        for (let kernel of this._kernels) {
+            this.updateKernelInfoAndIndex(kernel);
+        }
     }
 }

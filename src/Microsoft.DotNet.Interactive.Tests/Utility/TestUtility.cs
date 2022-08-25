@@ -5,7 +5,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -19,12 +18,10 @@ using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.Parsing;
-using Microsoft.DotNet.Interactive.Server;
-
+using Microsoft.DotNet.Interactive.Connection;
 
 namespace Microsoft.DotNet.Interactive.Tests.Utility
 {
-    [DebuggerStepThrough]
     public static class AssertionExtensions
     {
         public static GenericCollectionAssertions<T> AllSatisfy<T>(
@@ -98,7 +95,7 @@ namespace Microsoft.DotNet.Interactive.Tests.Utility
             return new AndConstraint<GenericCollectionAssertions<T>>(assertions);
         }
 
-        public static AndConstraint<StringCollectionAssertions> BeEquivalentSequenceTo(
+        public static AndConstraint<StringCollectionAssertions<IEnumerable<string>>> BeEquivalentSequenceTo(
             this StringCollectionAssertions assertions,
             params string[] expectedValues)
         {

@@ -14,7 +14,7 @@ namespace Microsoft.DotNet.Interactive
     {
         private readonly Kernel _kernel;
 
-        private readonly List<(KernelCommandPipelineMiddleware func, string name)> _middlewares = new List<(KernelCommandPipelineMiddleware func, string name)>();
+        private readonly List<(KernelCommandPipelineMiddleware func, string name)> _middlewares = new();
 
         private KernelCommandPipelineMiddleware _pipeline;
 
@@ -37,6 +37,8 @@ namespace Microsoft.DotNet.Interactive
         {
             EnsureMiddlewarePipelineIsInitialized();
 
+            command.RoutingSlip.TryAdd(_kernel.GetKernelUri());
+            
             try
             {
                 await _pipeline(command, context, (_, __) => Task.CompletedTask);

@@ -18,12 +18,20 @@ variables:
     value: true
   - name: _DotNetArtifactsCategory
     value: .NETCore
+  - name: DisableDockerDetector
+    value: true
   - name: PocketLoggerLogPath
     value: $(Build.SourcesDirectory)/artifacts/log/$(_BuildConfig)
   - name: TryDotNetPackagesPath
     value: $(Build.SourcesDirectory)/artifacts/.trydotnet/packages
   - name: NodeJSVersion
     value: '16.13.0'
+  - name: Codeql.Enabled
+    value: true
+  - ${{ if and(ne(variables['System.TeamProject'], 'public'), notin(variables['Build.Reason'], 'PullRequest')) }}:
+    - name: _DotNetValidationArtifactsCategory
+      value: .NETCoreValidation
+    - group: DotNet-Interactive-SDLValidation-Params
 
 stages:
 - stage: build
@@ -41,10 +49,10 @@ stages:
         pool:
           ${{ if or(eq(variables['System.TeamProject'], 'public'), in(variables['Build.Reason'], 'PullRequest')) }}:
             name: NetCore1ESPool-Public
-            demands: ImageOverride -equals Build.Windows.10.Amd64.VS2019.Open
+            demands: ImageOverride -equals windows.vs2022.amd64.open
           ${{ if and(ne(variables['System.TeamProject'], 'public'), notin(variables['Build.Reason'], 'PullRequest')) }}:
             name: NetCore1ESPool-Internal
-            demands: ImageOverride -equals build.windows.10.amd64.vs2019
+            demands: ImageOverride -equals windows.vs2022.amd64
         timeoutInMinutes: 90
         variables:
         # Enable signing for internal, non-PR builds
@@ -77,9 +85,6 @@ stages:
           - name: _BuildArgs
             value: /p:SignType=$(_SignType)
         steps:
-        - script: git config --global core.longpaths true
-          displayName: Enable `git clean` to handle long paths
-
         - checkout: self
           clean: true
 
@@ -125,7 +130,7 @@ stages:
             TRYDOTNET_PACKAGES_PATH: $(TryDotNetPackagesPath)
             DOTNET_INTERACTIVE_FRONTEND_NAME: CI
 
-        - script: dotnet test -l trx --no-build --blame-hang-timeout 5m --blame-hang-dump-type full -c $(_BuildConfig) --results-directory $(Build.SourcesDirectory)/artifacts/TestResults/$(_BuildConfig)
+        - script: dotnet test -l trx --no-build --blame-hang-timeout 15m --blame-hang-dump-type full --blame-crash -c $(_BuildConfig) --results-directory $(Build.SourcesDirectory)/artifacts/TestResults/$(_BuildConfig)
           displayName: Test / Blame
           workingDirectory: $(Build.SourcesDirectory)
           condition: ne(variables['SkipTests'], 'true')
@@ -251,6 +256,7 @@ stages:
 
         - script: |
             mkdir -p "$(Build.SourcesDirectory)/artifacts"
+            rm -rf "$(Build.SourcesDirectory)/artifacts/*"
             cp eng/resources/* "$(Build.SourcesDirectory)/artifacts"
           displayName: Prevent test directory crawling
 
@@ -269,7 +275,7 @@ stages:
             TRYDOTNET_PACKAGES_PATH: $(TryDotNetPackagesPath)
             DOTNET_INTERACTIVE_FRONTEND_NAME: CI
 
-        - script: dotnet test -l trx --no-build --blame-hang-timeout 5m --blame-hang-dump-type full -c $(_BuildConfig) --results-directory $(Build.SourcesDirectory)/artifacts/TestResults/$(_BuildConfig)
+        - script: dotnet test -l trx --no-build --blame-hang-timeout 15m --blame-hang-dump-type full --blame-crash -c $(_BuildConfig) --results-directory $(Build.SourcesDirectory)/artifacts/TestResults/$(_BuildConfig)
           displayName: Test / Blame
           workingDirectory: $(Build.SourcesDirectory)
           condition: ne(variables['SkipTests'], 'true')
@@ -373,6 +379,21 @@ stages:
       enableSymbolValidation: false
       # SourceLink improperly looks for generated files.  See https://github.com/dotnet/arcade/issues/3069
       enableSourceLinkValidation: false
+      # Enable SDL validation, passing through values from the 'DotNet-FSharp-SDLValidation-Params' group.
+      SDLValidationParameters:
+        enable: true
+        params: >-
+          -SourceToolsList @("policheck","credscan")
+          -TsaInstanceURL $(_TsaInstanceURL)
+          -TsaProjectName $(_TsaProjectName)
+          -TsaNotificationEmail $(_TsaNotificationEmail)
+          -TsaCodebaseAdmin $(_TsaCodebaseAdmin)
+          -TsaBugAreaPath $(_TsaBugAreaPath)
+          -TsaIterationPath $(_TsaIterationPath)
+          -TsaRepositoryName "Interactive"
+          -TsaCodebaseName "Interactive-GitHub"
+          -TsaPublish $True
+          -PoliCheckAdditionalRunConfigParams @("UserExclusionPath < $(Build.SourcesDirectory)/eng/policheck_exclusions.xml")
 
 #---------------------------------------------------------------------------------------------------------------------#
 #                                                    NPM Publish                                                      #

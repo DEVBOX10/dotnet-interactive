@@ -113,6 +113,51 @@ namespace Microsoft.DotNet.Interactive.Tests
         }
 
         [Fact]
+        public async Task Deferred_work_in_progress_is_allowed_to_complete_when_the_work_that_triggered_it_is_cancelled()
+        {
+            using var scheduler = new KernelScheduler<int, int>();
+            var cts = new CancellationTokenSource();
+
+            var deferredOperations = new[] { 1, 2, 3 };
+            var completedDeferredOperations = new List<int>();
+
+            var deferredOperationsTaskCompletionSource = new TaskCompletionSource();
+            scheduler.RegisterDeferredOperationSource(
+                (_, _) => deferredOperations,
+                async i =>
+                {
+                    if (!cts.IsCancellationRequested)
+                    {
+                        cts.Cancel();
+                    }
+
+                    await Task.Delay(50);
+
+                    completedDeferredOperations.Add(i);
+                    if (completedDeferredOperations.Count == deferredOperations.Length)
+                    {
+                        deferredOperationsTaskCompletionSource.SetResult();
+                    }
+
+                    return i;
+                });
+
+            var run = () => scheduler.RunAsync(4, Task.FromResult, cancellationToken: cts.Token);
+
+            await run.Invoking(async r => await r())
+                .Should()
+                .ThrowAsync<OperationCanceledException>();
+
+            await Task.WhenAny(
+                deferredOperationsTaskCompletionSource.Task,
+                Task.Delay(TimeSpan.FromSeconds(5)));
+
+            completedDeferredOperations
+                .Should()
+                .BeEquivalentTo(deferredOperations);
+        }
+
+        [Fact]
         public void disposing_scheduler_prevents_later_scheduled_work_from_executing()
         {
             using var scheduler = new KernelScheduler<int, int>();
@@ -208,7 +253,7 @@ namespace Microsoft.DotNet.Interactive.Tests
 
             work.Invoking(async w => await w)
                 .Should()
-                .Throw<OperationCanceledException>();
+                .ThrowAsync<OperationCanceledException>();
         }
 
         [Fact]
@@ -230,7 +275,7 @@ namespace Microsoft.DotNet.Interactive.Tests
 
             work.Invoking(async w => await w)
                 .Should()
-                .Throw<OperationCanceledException>();
+                .ThrowAsync<OperationCanceledException>();
         }
 
         [Fact]
@@ -293,7 +338,7 @@ namespace Microsoft.DotNet.Interactive.Tests
 
             work.Invoking(async w => await w)
                 .Should()
-                .Throw<DataMisalignedException>();
+                .ThrowAsync<DataMisalignedException>();
         }
 
         [Fact]
@@ -393,7 +438,7 @@ namespace Microsoft.DotNet.Interactive.Tests
 
             var xs = await Task.WhenAll(tasks);
 
-            xs.Should().BeEquivalentTo(0, 1, 2, 3, 4);
+            xs.Should().BeEquivalentTo(new[] { 0, 1, 2, 3, 4 });
         }
 
         [Fact]
@@ -420,7 +465,7 @@ namespace Microsoft.DotNet.Interactive.Tests
             using var scheduler = new KernelScheduler<int, int>();
             int asyncId1 = default;
             int asyncId2 = default;
-            
+
             AsyncContext.TryEstablish(out asyncId1);
 
             await scheduler.RunAsync(0, async value =>
@@ -432,7 +477,7 @@ namespace Microsoft.DotNet.Interactive.Tests
 
             asyncId2.Should().Be(asyncId1);
         }
-              
+
         [Fact]
         public async Task AsyncContext_does_not_leak_from_inner_context()
         {
@@ -483,11 +528,11 @@ namespace Microsoft.DotNet.Interactive.Tests
 
             scheduler.RegisterDeferredOperationSource((execute, name) =>
             {
-                return new[] {0,1,2};
+                return new[] { 0, 1, 2 };
             }, async value =>
             {
                 AsyncContext.TryEstablish(out var asyncId);
-                asyncIdsForDeferredWork.Add( asyncId );
+                asyncIdsForDeferredWork.Add(asyncId);
                 await Task.Yield();
                 return value;
             });
@@ -504,12 +549,12 @@ namespace Microsoft.DotNet.Interactive.Tests
                                    .And
                                    .AllBeEquivalentTo(asyncIdForScheduledWork);
         }
-        
+
         [Fact]
         public async Task AsyncContext_does_not_leak_between_scheduled_work_when_ExecutionContext_is_suppressed()
         {
             ExecutionContext.SuppressFlow();
-            
+
             await AsyncContext_does_not_leak_between_scheduled_work();
         }
 
@@ -517,7 +562,7 @@ namespace Microsoft.DotNet.Interactive.Tests
         public async Task work_can_be_scheduled_from_within_scheduled_work_when_ExecutionContext_is_suppressed()
         {
             ExecutionContext.SuppressFlow();
-            
+
             await work_can_be_scheduled_from_within_scheduled_work();
         }
 
@@ -525,7 +570,7 @@ namespace Microsoft.DotNet.Interactive.Tests
         public async Task concurrent_schedulers_do_not_interfere_with_one_another_when_ExecutionContext_is_suppressed()
         {
             ExecutionContext.SuppressFlow();
-            
+
             await concurrent_schedulers_do_not_interfere_with_one_another();
         }
 
@@ -533,7 +578,7 @@ namespace Microsoft.DotNet.Interactive.Tests
         public async Task AsyncContext_is_maintained_across_async_operations_within_scheduled_work_when_ExecutionContext_is_suppressed()
         {
             ExecutionContext.SuppressFlow();
-            
+
             await AsyncContext_is_maintained_across_async_operations_within_scheduled_work();
         }
 
@@ -541,7 +586,7 @@ namespace Microsoft.DotNet.Interactive.Tests
         public async Task AsyncContext_does_not_leak_from_inner_context_when_ExecutionContext_is_suppressed()
         {
             ExecutionContext.SuppressFlow();
-            
+
             await AsyncContext_does_not_leak_from_inner_context();
         }
     }

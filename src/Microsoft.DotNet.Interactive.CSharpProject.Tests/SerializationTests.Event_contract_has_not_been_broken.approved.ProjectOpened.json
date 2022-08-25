@@ -5,7 +5,10 @@
         "relativeFilePath": "./Program.cs",
         "regionNames": [
           "some-region"
-        ]
+        ],
+        "regionsContent": {
+          "some-region": ""
+        }
       }
     ]
   },
@@ -26,6 +29,12 @@
       "targetKernelName": null,
       "originUri": null,
       "destinationUri": null
-    }
-  }
+    },
+    "routingSlip": [
+      "kernel://somelocation/kernelName"
+    ]
+  },
+  "routingSlip": [
+    "kernel://somelocation/kernelName"
+  ]
 }

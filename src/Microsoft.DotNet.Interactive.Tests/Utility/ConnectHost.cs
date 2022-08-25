@@ -2,16 +2,18 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.IO;
+using System.Reactive.Subjects;
+using System.Threading.Tasks;
 using Microsoft.DotNet.Interactive.Connection;
-using Microsoft.DotNet.Interactive.Tests.Connection;
 
 namespace Microsoft.DotNet.Interactive.Tests.Utility;
 
 public static class ConnectHost
 {
     public static CompositeKernel ConnectInProcessHost(
-        this CompositeKernel localCompositeKernel
-        , Uri uri = null)
+        this CompositeKernel localCompositeKernel,
+        Uri uri = null)
     {
         CompositeKernel remoteCompositeKernel = new();
 
@@ -20,12 +22,12 @@ public static class ConnectHost
         ConnectInProcessHost(
             localCompositeKernel,
             remoteCompositeKernel,
-            uri ?? new Uri("kernel://local/"), 
+            uri ?? new Uri("kernel://local/"),
             new Uri("kernel://remote/"));
 
         return localCompositeKernel;
     }
-
+    
     public static void ConnectInProcessHost(
         CompositeKernel localCompositeKernel,
         CompositeKernel remoteCompositeKernel,
@@ -35,36 +37,114 @@ public static class ConnectHost
         localHostUri ??= new("kernel://local");
         remoteHostUri ??= new("kernel://remote");
 
-        var innerLocalReceiver = new BlockingCommandAndEventReceiver(localHostUri);
+        var localSenderSubject = new Subject<string>();
+        var remoteSenderSubject = new Subject<string>();
 
-        var localReceiver = new MultiplexingKernelCommandAndEventReceiver(innerLocalReceiver);
+        var localReceiver = KernelCommandAndEventReceiver.FromObservable(remoteSenderSubject);
+        var remoteReceiver = KernelCommandAndEventReceiver.FromObservable(localSenderSubject);
 
-        var remoteInnerReceiver = new BlockingCommandAndEventReceiver(remoteHostUri);
-
-        var localSender = remoteInnerReceiver.CreateSender(localHostUri);
-
-        var remoteReceiver = new MultiplexingKernelCommandAndEventReceiver(remoteInnerReceiver);
-
-        var remoteSender = innerLocalReceiver.CreateSender(remoteHostUri);
+        var localToRemoteSender = KernelCommandAndEventSender.FromObserver(
+            localSenderSubject,
+            remoteHostUri);
+        var remoteToLocalSender = KernelCommandAndEventSender.FromObserver(
+            remoteSenderSubject,
+            localHostUri);
 
         var localHost = localCompositeKernel.UseHost(
-            localSender,
+            localToRemoteSender,
             localReceiver,
             localHostUri);
 
         var remoteHost = remoteCompositeKernel.UseHost(
-            remoteSender,
+            remoteToLocalSender,
             remoteReceiver,
             remoteHostUri);
 
-        var _ = localHost.ConnectAsync();
-        var __ = remoteHost.ConnectAsync();
+        Task.Run(async () =>
+        {
+            await localHost.ConnectAsync();
+            await remoteHost.ConnectAsync();
+        }).Wait();
 
         localCompositeKernel.RegisterForDisposal(localHost);
-        localCompositeKernel.RegisterForDisposal(innerLocalReceiver);
-        localCompositeKernel.RegisterForDisposal(localReceiver);
         remoteCompositeKernel.RegisterForDisposal(remoteHost);
-        remoteCompositeKernel.RegisterForDisposal(remoteInnerReceiver);
+        
+        localCompositeKernel.RegisterForDisposal(localReceiver);
         remoteCompositeKernel.RegisterForDisposal(remoteReceiver);
+    }
+
+    private class TestConsoleStream : Stream
+    {
+        private readonly MemoryStream _innerStream;
+
+        public TestConsoleStream()
+        {
+            _innerStream = new MemoryStream();
+        }
+
+        public override void Flush()
+        {
+            lock (_innerStream)
+            {
+                _innerStream.Flush();
+            }
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            lock (_innerStream)
+            {
+                return _innerStream.Read(buffer, offset, count);
+            }
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            lock (_innerStream)
+            {
+                return _innerStream.Seek(offset, origin);
+            }
+        }
+
+        public override void SetLength(long value)
+        {
+            lock (_innerStream)
+            {
+                _innerStream.SetLength(value);
+            }
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            lock (_innerStream)
+            {
+                var pos = Position;
+                _innerStream.Write(buffer, offset, count);
+                Position = pos;
+            }
+        }
+
+        public override bool CanRead => _innerStream.CanRead;
+
+        public override bool CanSeek => _innerStream.CanSeek;
+
+        public override bool CanWrite => _innerStream.CanWrite;
+
+        public override long Length => _innerStream.Length;
+
+        public override long Position
+        {
+            get => _innerStream.Position;
+            set => _innerStream.Position = value;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _innerStream.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 }

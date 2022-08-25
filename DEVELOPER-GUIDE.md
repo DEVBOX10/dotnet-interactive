@@ -6,7 +6,11 @@ If you would like to build `dotnet-interactive` tool and its associated librarie
 
 ### Prerequisites
 
-This repo depends on symbolic links between directories. By default, Windows doesn't support this feature. To work around this scenario, please run the PowerShell script `<root>/src/ensure-symlinks.ps1` as an administrator. This usually only needs to be run once.
+- Windows
+  - Enable [developer mode](https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development).
+  - This repo depends on symbolic links between directories. By default, Windows doesn't support this feature. To work around this scenario, please run the PowerShell script `<root>/src/ensure-symlinks.ps1` as an administrator. This usually only needs to be run once.
+
+    **N.b., using symbolic links in Windows requires the drive be formatted as NTFS.**
 
 This project depends on .NET 6.0. Before working on the project, check that the .NET prerequisites have been met:
 
@@ -16,7 +20,7 @@ This project depends on .NET 6.0. Before working on the project, check that the 
 
 ### Visual Studio / Visual Studio Code
 
-This project supports [Visual Studio 2019](https://visualstudio.com) and [Visual Studio for Mac](https://www.visualstudio.com/vs/visual-studio-mac/). Any version, including the free Community Edition, should be sufficient, as long as you install Visual Studio support for .NET development.
+This project supports [Visual Studio 2022](https://visualstudio.com) and [Visual Studio for Mac](https://www.visualstudio.com/vs/visual-studio-mac/). Any version, including the free Community Edition, should be sufficient, as long as you install Visual Studio support for .NET development.
 
 This project also supports using [Visual Studio Code](https://code.visualstudio.com). Install the [C# extension](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.csharp) and install the [.NET SDK](https://dotnet.microsoft.com/download) to get started.
 

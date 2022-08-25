@@ -3,7 +3,6 @@
 
 using System;
 using System.CommandLine;
-using System.CommandLine.Invocation;
 using System.CommandLine.NamingConventionBinder;
 using System.Linq;
 using System.Reactive.Linq;
@@ -18,6 +17,7 @@ using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Microsoft.DotNet.Interactive.ValueSharing;
+using Pocket.For.Xunit;
 using Xunit;
 using Xunit.Abstractions;
 using DiagnosticsProduced = Microsoft.DotNet.Interactive.Events.DiagnosticsProduced;
@@ -26,6 +26,7 @@ using DiagnosticsProduced = Microsoft.DotNet.Interactive.Events.DiagnosticsProdu
 #pragma warning disable 8524
 namespace Microsoft.DotNet.Interactive.Tests
 {
+    [LogToPocketLogger(FileNameEnvironmentVariable = "POCKETLOGGER_LOG_PATH")]
     public sealed class LanguageKernelTests : LanguageKernelTestBase
     {
         public LanguageKernelTests(ITestOutputHelper output) : base(output)
@@ -659,30 +660,25 @@ $${languageSpecificCode}
         }
 
         [Theory]
-        [InlineData(Language.CSharp)]
         [InlineData(Language.FSharp)]
+        [InlineData(Language.CSharp)]
         public async Task RequestCompletions_prevents_RequestDiagnostics_from_producing_events(Language language)
         {
-            var kernel = CreateKernel(language);
-            
+            using var kernel = CreateKernel(language);
+
             MarkupTestFile.GetLineAndColumn("Console.$$", out var output, out var line, out var column);
-            
+
             var requestDiagnosticsCommand = new RequestDiagnostics(output);
 
-            var requestCompletionsCommand = new RequestCompletions(output, new LinePosition(line,column));
-            var results = await Task.WhenAll(
-                kernel.SendAsync(requestCompletionsCommand),
-                kernel.SendAsync(requestDiagnosticsCommand)
-            );
+            var requestCompletionsCommand = new RequestCompletions(output, new LinePosition(line, column));
 
-            var events = results.SelectMany(r => r.KernelEvents.ToSubscribedList()).ToList();
+            // var results = await Task.WhenAll(
+            var diagnosticsResultTask = kernel.SendAsync(requestDiagnosticsCommand);
+            var completionResult = await kernel.SendAsync(requestCompletionsCommand);
 
-            events.Select(e => e.GetType())
-                .Where(t => t == typeof(CommandSucceeded)).Should()
-                .HaveCount(2);
+            var diagnosticsResult = await diagnosticsResultTask;
 
-            events.Should()
-                .NotContain(e => e.GetType() == typeof(DiagnosticsProduced) && e.Command == requestDiagnosticsCommand);
+            diagnosticsResult.KernelEvents.ToSubscribedList().Should().NotContain(e => e is DiagnosticsProduced);
         }
 
         [Theory]
@@ -885,7 +881,7 @@ $${languageSpecificCode}
         [InlineData(Language.CSharp)]
         [InlineData(Language.FSharp)]
         public async Task it_aggregates_multiple_submissions(Language language)
-        {
+        {   
             var kernel = CreateKernel(language);
 
             var source = language switch
@@ -1093,7 +1089,7 @@ System.Threading.Thread.Sleep(1000);
 
             var diff = events[1].Timestamp - events[0].Timestamp;
 
-            diff.Should().BeCloseTo(1.Seconds(), precision: 500);
+            diff.Should().BeCloseTo(1.Seconds(), precision: 0.5.Seconds());
             events
                 .Select(e => e.Value as DisplayedValueProduced)
                 .SelectMany(e => e.FormattedValues.Select(v => v.Value))
@@ -1323,6 +1319,22 @@ System.Threading.Thread.Sleep(1000);
 
             succeeded.Should().BeTrue();
             x.Should().Be("hello");
+        }
+
+        [Fact]
+        public async Task FSharp_can_set_an_array_value_with_SetValueAsync()
+        {
+            var kernel = CreateKernel(Language.FSharp);
+            var languageKernel = kernel.ChildKernels.OfType<ISupportSetClrValue>().Single();
+
+            await languageKernel.SetValueAsync("x", new int[] { 42 });
+
+            var succeeded = ((ISupportGetValue)languageKernel).TryGetValue("x", out int[] x);
+
+            using var _ = new AssertionScope();
+
+            succeeded.Should().BeTrue();
+            x.Should().BeEquivalentTo(new int[] { 42 });
         }
     }
 }

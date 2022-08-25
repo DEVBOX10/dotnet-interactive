@@ -11,13 +11,13 @@ export const ChangeWorkingDirectoryType = "ChangeWorkingDirectory";
 export const CompileProjectType = "CompileProject";
 export const DisplayErrorType = "DisplayError";
 export const DisplayValueType = "DisplayValue";
-export const GetInputType = "GetInput";
 export const OpenDocumentType = "OpenDocument";
 export const OpenProjectType = "OpenProject";
 export const QuitType = "Quit";
 export const RequestCompletionsType = "RequestCompletions";
 export const RequestDiagnosticsType = "RequestDiagnostics";
 export const RequestHoverTextType = "RequestHoverText";
+export const RequestInputType = "RequestInput";
 export const RequestKernelInfoType = "RequestKernelInfo";
 export const RequestSignatureHelpType = "RequestSignatureHelp";
 export const RequestValueType = "RequestValue";
@@ -33,13 +33,13 @@ export type KernelCommandType =
     | typeof CompileProjectType
     | typeof DisplayErrorType
     | typeof DisplayValueType
-    | typeof GetInputType
     | typeof OpenDocumentType
     | typeof OpenProjectType
     | typeof QuitType
     | typeof RequestCompletionsType
     | typeof RequestDiagnosticsType
     | typeof RequestHoverTextType
+    | typeof RequestInputType
     | typeof RequestKernelInfoType
     | typeof RequestSignatureHelpType
     | typeof RequestValueType
@@ -77,11 +77,6 @@ export interface DisplayValue extends KernelCommand {
     valueId: string;
 }
 
-export interface GetInput extends KernelCommand {
-    prompt: string;
-    isPassword: boolean;
-}
-
 export interface OpenDocument extends KernelCommand {
     relativeFilePath: string;
     regionName?: string;
@@ -107,6 +102,11 @@ export interface RequestDiagnostics extends KernelCommand {
 }
 
 export interface RequestHoverText extends LanguageServiceCommand {
+}
+
+export interface RequestInput extends KernelCommand {
+    prompt: string;
+    isPassword: boolean;
 }
 
 export interface RequestKernelInfo extends KernelCommand {
@@ -143,12 +143,20 @@ export interface KernelEvent {
 
 export interface DisplayElement extends InteractiveDocumentOutputElement {
     data: { [key: string]: any; };
+    metadata: { [key: string]: any; };
 }
 
 export interface InteractiveDocumentOutputElement {
 }
 
+export interface ReturnValueElement extends InteractiveDocumentOutputElement {
+    data: { [key: string]: any; };
+    executionOrder: number;
+    metadata: { [key: string]: any; };
+}
+
 export interface TextElement extends InteractiveDocumentOutputElement {
+    name: string;
     text: string;
 }
 
@@ -428,12 +436,16 @@ export interface FormattedValue {
 
 export interface InteractiveDocument {
     elements: Array<InteractiveDocumentElement>;
+    metadata: { [key: string]: any; };
 }
 
 export interface InteractiveDocumentElement {
-    language: string;
+    id?: string;
+    language?: string;
     contents: string;
     outputs: Array<InteractiveDocumentOutputElement>;
+    executionOrder: number;
+    metadata?: { [key: string]: any; };
 }
 
 export interface KernelInfo {
@@ -477,6 +489,7 @@ export interface ProjectFile {
 export interface ProjectItem {
     relativeFilePath: string;
     regionNames: Array<string>;
+    regionsContent: { [key: string]: string; };
 }
 
 export enum RequestType {
@@ -510,6 +523,7 @@ export interface KernelEventEnvelope {
     eventType: KernelEventType;
     event: KernelEvent;
     command?: KernelCommandEnvelope;
+    routingSlip?: string[];
 }
 
 export interface KernelCommandEnvelope {
@@ -517,6 +531,7 @@ export interface KernelCommandEnvelope {
     id?: string;
     commandType: KernelCommandType;
     command: KernelCommand;
+    routingSlip?: string[];
 }
 
 export interface KernelEventEnvelopeObserver {
@@ -526,24 +541,3 @@ export interface KernelEventEnvelopeObserver {
 export interface KernelCommandEnvelopeHandler {
     (eventEnvelope: KernelCommandEnvelope): Promise<void>;
 }
-
-export interface Disposable {
-    dispose(): void;
-}
-
-export interface DisposableSubscription extends Disposable {
-}
-
-export interface KernelCommandAndEventSender {
-    submitCommand(commandEnvelope: KernelCommandEnvelope): Promise<void>;
-    publishKernelEvent(eventEnvelope: KernelEventEnvelope): Promise<void>;
-}
-
-export interface KernelCommandAndEventReceiver {
-    subscribeToKernelEvents(observer: KernelEventEnvelopeObserver): DisposableSubscription;
-    setCommandHandler(handler: KernelCommandEnvelopeHandler): void;
-}
-
-export interface KernelCommandAndEventChannel extends KernelCommandAndEventSender, KernelCommandAndEventReceiver, Disposable {
-}
-

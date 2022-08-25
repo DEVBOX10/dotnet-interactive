@@ -6,13 +6,19 @@
   "command": {
     "token": "the-token",
     "id": "command-id",
-    "commandType": "GetInput",
+    "commandType": "RequestInput",
     "command": {
-      "prompt": "",
+      "prompt": "Input?",
       "isPassword": false,
       "targetKernelName": "vscode",
       "originUri": null,
       "destinationUri": null
-    }
-  }
+    },
+    "routingSlip": [
+      "kernel://somelocation/kernelName"
+    ]
+  },
+  "routingSlip": [
+    "kernel://somelocation/kernelName"
+  ]
 }

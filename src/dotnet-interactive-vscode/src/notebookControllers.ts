@@ -3,7 +3,6 @@
 
 import * as vscode from 'vscode';
 import { ClientMapper } from './vscode-common/clientMapper';
-
 import * as contracts from './vscode-common/dotnet-interactive/contracts';
 import * as vscodeLike from './vscode-common/interfaces/vscode-like';
 import * as diagnostics from './vscode-common/diagnostics';
@@ -15,6 +14,8 @@ import { selectDotNetInteractiveKernelForJupyter } from './vscode-common/command
 import { ErrorOutputCreator } from './vscode-common/interactiveClient';
 import { LogEntry, Logger } from './vscode-common/dotnet-interactive/logger';
 import * as notebookMessageHandler from './vscode-common/notebookMessageHandler';
+import { KernelCommandOrEventEnvelope } from './vscode-common/dotnet-interactive/connection';
+import * as rxjs from 'rxjs';
 
 const executionTasks: Map<string, vscode.NotebookCellExecution> = new Map();
 
@@ -98,32 +99,23 @@ export class DotNetNotebookKernel {
         this.disposables.forEach(d => d.dispose());
     }
 
-    private uriMessageHandlerMap: Map<string, notebookMessageHandler.MessageHandler> = new Map();
+    private uriMessageHandlerMap: Map<string, rxjs.Subject<KernelCommandOrEventEnvelope>> = new Map();
 
     private commonControllerInit(controller: vscode.NotebookController) {
         controller.supportedLanguages = notebookCellLanguages;
         this.disposables.push(controller.onDidReceiveMessage(e => {
-            const documentUri = e.editor.document.uri;
-            const documentUriString = documentUri.toString();
+            const notebookUri = e.editor.notebook.uri;
+            const notebookUriString = notebookUri.toString();
 
             if (e.message.envelope) {
-                let messageHandler = this.uriMessageHandlerMap.get(documentUriString);
-                if (messageHandler) {
-                    const envelope = <contracts.KernelCommandEnvelope | contracts.KernelEventEnvelope><any>(e.message.envelope);
-                    if (messageHandler.waitingOnMessages) {
-                        let capturedMessageWaiter = messageHandler.waitingOnMessages;
-                        messageHandler.waitingOnMessages = null;
-                        capturedMessageWaiter.resolve(envelope);
-                    } else {
-                        messageHandler.envelopeQueue.push(envelope);
-                    }
-                }
+                let messageHandler = this.uriMessageHandlerMap.get(notebookUriString);
+                messageHandler?.next(e.message.envelope);
             }
 
             switch (e.message.preloadCommand) {
                 case '#!connect':
-                    this.config.clientMapper.getOrAddClient(documentUri).then(() => {
-                        notebookMessageHandler.hashBangConnect(this.config.clientMapper, this.uriMessageHandlerMap, (arg) => controller.postMessage(arg), documentUri);
+                    this.config.clientMapper.getOrAddClient(notebookUri).then(() => {
+                        notebookMessageHandler.hashBangConnect(this.config.clientMapper, this.uriMessageHandlerMap, (arg) => controller.postMessage(arg), notebookUri);
                     });
                     break;
             }
@@ -150,7 +142,7 @@ export class DotNetNotebookKernel {
             try {
                 const startTime = Date.now();
                 executionTask.start(startTime);
-                executionTask.clearOutput(cell);
+                await executionTask.clearOutput(cell);
                 const controllerErrors: vscodeLike.NotebookCellOutput[] = [];
 
                 function outputObserver(outputs: Array<vscodeLike.NotebookCellOutput>) {
@@ -270,9 +262,10 @@ function generateVsCodeNotebookCellOutputItem(data: Uint8Array, mime: string, st
 }
 
 async function updateDocumentKernelspecMetadata(document: vscode.NotebookDocument): Promise<void> {
-    const edit = new vscode.WorkspaceEdit();
     const documentKernelMetadata = withDotNetKernelMetadata(document.metadata);
-    edit.replaceNotebookMetadata(document.uri, documentKernelMetadata);
+    const notebookEdit = vscode.NotebookEdit.updateNotebookMetadata(documentKernelMetadata);
+    const edit = new vscode.WorkspaceEdit();
+    edit.set(document.uri, [notebookEdit]);
     await vscode.workspace.applyEdit(edit);
 }
 

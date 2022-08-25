@@ -1,0 +1,15 @@
+{
+  "token": "the-token",
+  "id": "command-id",
+  "commandType": "RequestInput",
+  "command": {
+    "prompt": "provide answer",
+    "isPassword": true,
+    "targetKernelName": "vscode",
+    "originUri": null,
+    "destinationUri": null
+  },
+  "routingSlip": [
+    "kernel://somelocation/kernelName"
+  ]
+}

@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Pocket;
 
 namespace Microsoft.DotNet.Interactive
@@ -22,7 +23,7 @@ namespace Microsoft.DotNet.Interactive
 
         private readonly BlockingCollection<ScheduledOperation> _topLevelScheduledOperations = new();
         private ScheduledOperation _currentlyRunningOperation;
-        
+
         public KernelScheduler()
         {
             _runLoopTask = Task.Factory.StartNew(
@@ -62,6 +63,7 @@ namespace Microsoft.DotNet.Interactive
                 operation = new ScheduledOperation(
                     value,
                     onExecuteAsync,
+                    false,
                     null,
                     scope,
                     cancellationToken);
@@ -72,6 +74,7 @@ namespace Microsoft.DotNet.Interactive
                 operation = new ScheduledOperation(
                     value,
                     onExecuteAsync,
+                    false,
                     ExecutionContext.Capture(),
                     scope: scope,
                     cancellationToken: cancellationToken);
@@ -87,7 +90,6 @@ namespace Microsoft.DotNet.Interactive
             {
                 _currentTopLevelOperation.Value = operation;
 
-                _currentTopLevelOperation.Value = operation;
                 var executionContext = operation.ExecutionContext;
 
                 if (executionContext is null)
@@ -101,7 +103,7 @@ namespace Microsoft.DotNet.Interactive
                 try
                 {
                     ExecutionContext.Run(
-                        executionContext,
+                        executionContext!,
                         _ => RunScheduledOperationAndDeferredOperations(operation),
                         operation);
 
@@ -109,7 +111,7 @@ namespace Microsoft.DotNet.Interactive
                 }
                 catch (Exception e)
                 {
-                    Log.Error(e);
+                    Log.Error("while executing {operation}", e, operation);
                 }
                 finally
                 {
@@ -140,7 +142,8 @@ namespace Microsoft.DotNet.Interactive
                                         }
                                     });
 
-                Task.WaitAny(new[] {
+                Task.WaitAny(new[]
+                {
                     operationTask,
                     operation.TaskCompletionSource.Task
                 }, _schedulerDisposalSource.Token);
@@ -163,13 +166,6 @@ namespace Microsoft.DotNet.Interactive
                 foreach (var deferredOperation in OperationsToRunBefore(operation))
                 {
                     Run(deferredOperation);
-
-                    if (!deferredOperation.TaskCompletionSource.Task.GetIsCompletedSuccessfully())
-                    {
-                        Log.Error(
-                            "Deferred operation failed",
-                            deferredOperation.TaskCompletionSource.Task.Exception);
-                    }
                 }
 
                 Run(operation);
@@ -189,15 +185,22 @@ namespace Microsoft.DotNet.Interactive
         private IEnumerable<ScheduledOperation> OperationsToRunBefore(
             ScheduledOperation operation)
         {
-            foreach (var source in _deferredOperationSources)
+            for (var i = 0; i < _deferredOperationSources.Count; i++)
             {
-                foreach (var deferred in source.GetDeferredOperations(
+                var source = _deferredOperationSources[i];
+
+                var deferredOperations = source.GetDeferredOperations(
                     operation.Value,
-                    operation.Scope))
+                    operation.Scope);
+
+                for (var j = 0; j < deferredOperations.Count; j++)
                 {
+                    var deferred = deferredOperations[j];
+
                     var deferredOperation = new ScheduledOperation(
                         deferred,
                         source.OnExecuteAsync,
+                        true,
                         scope: operation.Scope);
 
                     yield return deferredOperation;
@@ -231,16 +234,18 @@ namespace Microsoft.DotNet.Interactive
 
         private class ScheduledOperation
         {
-            private readonly KernelSchedulerDelegate<T,TResult> _onExecuteAsync;
+            private readonly KernelSchedulerDelegate<T, TResult> _onExecuteAsync;
 
             public ScheduledOperation(
                 T value,
                 KernelSchedulerDelegate<T, TResult> onExecuteAsync,
+                bool isDeferred,
                 ExecutionContext executionContext = default,
                 string scope = "default",
                 CancellationToken cancellationToken = default)
             {
                 Value = value;
+                IsDeferred = isDeferred;
                 ExecutionContext = executionContext;
                 _onExecuteAsync = onExecuteAsync;
                 Scope = scope;
@@ -259,6 +264,8 @@ namespace Microsoft.DotNet.Interactive
             public TaskCompletionSource<TResult> TaskCompletionSource { get; }
 
             public T Value { get; }
+
+            public bool IsDeferred { get; }
 
             public ExecutionContext ExecutionContext { get; }
 

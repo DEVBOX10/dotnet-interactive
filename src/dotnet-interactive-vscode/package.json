@@ -8,23 +8,14 @@
   "author": "Microsoft Corporation",
   "license": "MIT",
   "enabledApiProposals": [
-    "notebookContentProvider",
-    "notebookCellExecutionState",
-    "notebookControllerKind",
-    "notebookDebugOptions",
-    "notebookDeprecated",
-    "notebookEditor",
-    "notebookEditorDecorationType",
-    "notebookEditorEdit",
     "notebookMessaging",
-    "notebookMime",
-    "textDocumentNotebook"
+    "notebookWorkspaceEdit"
   ],
   "preview": true,
   "//version": "The version '42.42.42' is auto-set during CI package creation.",
   "version": "42.42.42",
   "engines": {
-    "vscode": "^1.66.0"
+    "vscode": "^1.70.0"
   },
   "bugs": {
     "url": "https://github.com/dotnet/interactive/issues"
@@ -133,6 +124,11 @@
           ],
           "description": "Command and arguments used to start a notebook session."
         },
+        "dotnet-interactive.kernelEnvironmentVariables": {
+          "type": "object",
+          "default": {},
+          "description": "Environment variables to set when starting a notebook session."
+        },
         "dotnet-interactive.notebookParserArgs": {
           "type": "array",
           "default": [
@@ -166,7 +162,7 @@
         },
         "dotnet-interactive.minimumInteractiveToolVersion": {
           "type": "string",
-          "default": "1.0.318101",
+          "default": "1.0.337703",
           "description": "The minimum required version of the .NET Interactive tool."
         },
         "dotnet-interactive.logLevel": {
@@ -299,6 +295,12 @@
         ]
       },
       {
+        "id": "dotnet-interactive.mermaid",
+        "aliases": [
+          "Mermaid (.NET Interactive)"
+        ]
+      },
+      {
         "id": "dotnet-interactive.pwsh",
         "aliases": [
           "PowerShell (.NET Interactive)"
@@ -331,6 +333,7 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -346,6 +349,7 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -361,6 +365,7 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -376,6 +381,7 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -391,6 +397,7 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -406,6 +413,7 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -421,6 +429,23 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
+          "language.switch.powershell": "dotnet-interactive.pwsh",
+          "language.switch.sql": "dotnet-interactive.sql",
+          "language.switch.kql": "dotnet-interactive.kql"
+        }
+      },
+      {
+        "language": "dotnet-interactive.mermaid",
+        "scopeName": "source.dotnet-interactive.mermaid",
+        "path": "./syntaxes/source.dotnet-interactive.mermaid.tmGrammar.json",
+        "embeddedLanguages": {
+          "language.switch.csharp": "dotnet-interactive.csharp",
+          "language.switch.fsharp": "dotnet-interactive.fsharp",
+          "language.switch.html": "dotnet-interactive.html",
+          "language.switch.javascript": "dotnet-interactive.javascript",
+          "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -436,6 +461,7 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -451,6 +477,7 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -466,6 +493,7 @@
           "language.switch.html": "dotnet-interactive.html",
           "language.switch.javascript": "dotnet-interactive.javascript",
           "language.switch.markdown": "dotnet-interactive.markdown",
+          "language.switch.mermaid": "dotnet-interactive.mermaid",
           "language.switch.powershell": "dotnet-interactive.pwsh",
           "language.switch.sql": "dotnet-interactive.sql",
           "language.switch.kql": "dotnet-interactive.kql"
@@ -526,6 +554,7 @@
   "dependencies": {
     "compare-versions": "3.6.0",
     "node-fetch": "2.6.7",
-    "uuid": "8.3.2"
+    "uuid": "8.3.2",
+    "rxjs": "7.5.6"
   }
 }

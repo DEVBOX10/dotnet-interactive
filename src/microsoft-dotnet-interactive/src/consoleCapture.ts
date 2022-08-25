@@ -1,12 +1,22 @@
-import { InspectOptions } from "util";
+// Copyright (c) .NET Foundation and contributors. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
+import * as util from "util";
 import * as contracts from "./contracts";
 import { KernelInvocationContext } from "./kernelInvocationContext";
+import * as disposables from "./disposables";
 
-export class ConsoleCapture implements contracts.Disposable {
+export class ConsoleCapture implements disposables.Disposable {
     private originalConsole: Console;
-    constructor(private kernelInvocationContext: KernelInvocationContext) {
+    private _kernelInvocationContext: KernelInvocationContext | undefined;
+
+    constructor() {
         this.originalConsole = console;
         console = <Console><any>this;
+    }
+
+    set kernelInvocationContext(value: KernelInvocationContext | undefined) {
+        this._kernelInvocationContext = value;
     }
 
     assert(value: any, message?: string, ...optionalParams: any[]): void {
@@ -24,7 +34,7 @@ export class ConsoleCapture implements contracts.Disposable {
     debug(message?: any, ...optionalParams: any[]): void {
         this.originalConsole.debug(message, optionalParams);
     }
-    dir(obj: any, options?: InspectOptions): void {
+    dir(obj: any, options?: util.InspectOptions): void {
         this.originalConsole.dir(obj, options);
     }
     dirxml(...data: any[]): void {
@@ -84,37 +94,37 @@ export class ConsoleCapture implements contracts.Disposable {
     }
 
     private redirectAndPublish(target: (...args: any[]) => void, ...args: any[]) {
-        target(...args);
-        this.publishArgsAsEvents(...args);
-    }
+        if (this._kernelInvocationContext) {
+            for (const arg of args) {
+                let mimeType: string;
+                let value: string;
+                if (typeof arg !== 'object' && !Array.isArray(arg)) {
+                    mimeType = 'text/plain';
+                    value = arg?.toString();
+                } else {
+                    mimeType = 'application/json';
+                    value = JSON.stringify(arg);
+                }
 
-    private publishArgsAsEvents(...args: any[]) {
-        for (const arg of args) {
-            let mimeType: string;
-            let value: string;
-            if (typeof arg !== 'object' && !Array.isArray(arg)) {
-                mimeType = 'text/plain';
-                value = arg?.toString();
-            } else {
-                mimeType = 'application/json';
-                value = JSON.stringify(arg);
+                const displayedValue: contracts.DisplayedValueProduced = {
+                    formattedValues: [
+                        {
+                            mimeType,
+                            value,
+                        }
+                    ]
+                };
+                const eventEnvelope: contracts.KernelEventEnvelope = {
+                    eventType: contracts.DisplayedValueProducedType,
+                    event: displayedValue,
+                    command: this._kernelInvocationContext.commandEnvelope
+                };
+
+                this._kernelInvocationContext.publish(eventEnvelope);
             }
-
-            const displayedValue: contracts.DisplayedValueProduced = {
-                formattedValues: [
-                    {
-                        mimeType,
-                        value,
-                    }
-                ]
-            };
-            const eventEnvelope: contracts.KernelEventEnvelope = {
-                eventType: contracts.DisplayedValueProducedType,
-                event: displayedValue,
-                command: this.kernelInvocationContext.commandEnvelope
-            };
-
-            this.kernelInvocationContext.publish(eventEnvelope);
+        }
+        if (target) {
+            target(...args);
         }
     }
 }

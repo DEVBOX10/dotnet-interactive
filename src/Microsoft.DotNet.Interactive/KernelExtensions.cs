@@ -1,4 +1,4 @@
-﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
+// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
@@ -27,6 +27,12 @@ namespace Microsoft.DotNet.Interactive
 {
     public static class KernelExtensions
     {
+        internal static Uri GetKernelUri(this Kernel kernel)
+        {
+            var uri = kernel.KernelInfo.Uri ?? new Uri($"kernel://local/{kernel.KernelInfo.LocalName}", UriKind.Absolute);
+            return uri;
+        }
+        
         public static T UseQuitCommand<T>(this T kernel, Func<Task> onQuitAsync = null) where T : Kernel
         {
             kernel.RegisterCommandHandler<Quit>(async (_, _) =>
@@ -72,6 +78,26 @@ namespace Microsoft.DotNet.Interactive
             };
         }
 
+        public static IEnumerable<Kernel> FindKernels(this Kernel kernel, Func<Kernel, bool> predicate)
+        {
+            var root = kernel
+                .RecurseWhileNotNull(k => k switch
+                {
+                    { } kb => kb.ParentKernel,
+                    _ => null
+                })
+                .LastOrDefault();
+
+            return root switch
+            {
+               
+                CompositeKernel c => c.ChildKernels.Where(predicate),
+                _ when predicate(kernel) => new[] { kernel },
+                _ => Enumerable.Empty<Kernel>()
+            };
+        }
+
+        [DebuggerStepThrough]
         public static Task<KernelCommandResult> SendAsync(
             this Kernel kernel,
             KernelCommand command)
@@ -312,11 +338,15 @@ namespace Microsoft.DotNet.Interactive
         }
 
         public static TKernel UseWho<TKernel>(this TKernel kernel)
-            where TKernel : Kernel, ISupportGetValue
+            where TKernel : Kernel
         {
-            kernel.AddDirective(who());
-            kernel.AddDirective(whos());
-            Formatter.Register(new CurrentVariablesFormatter());
+            if (kernel.KernelInfo.SupportsCommand(nameof(RequestValueInfos))
+                    && kernel.KernelInfo.SupportsCommand(nameof(RequestValue)))
+            {
+                kernel.AddDirective(who());
+                kernel.AddDirective(whos());
+                Formatter.Register(new CurrentVariablesFormatter());
+            }
             return kernel;
         }
 
@@ -350,11 +380,13 @@ namespace Microsoft.DotNet.Interactive
         private static async Task DisplayValues(KernelInvocationContext context, bool detailed)
         {
             if (context.Command is SubmitCode &&
-                context.HandlingKernel is ISupportGetValue)
+                (context.HandlingKernel is ISupportGetValue
+                || (context.HandlingKernel.KernelInfo.SupportsCommand(nameof(RequestValueInfos)) 
+                    && context.HandlingKernel.KernelInfo.SupportsCommand(nameof(RequestValue)))))
             {
                 var nameEvents = new List<ValueInfosProduced>();
 
-                var result = await context.HandlingKernel.SendAsync(new RequestValueInfos(context.Command.TargetKernelName));
+                var result = await context.HandlingKernel.SendAsync(new RequestValueInfos(context.HandlingKernel.Name));
                 using var _ = result.KernelEvents.OfType<ValueInfosProduced>().Subscribe(e => nameEvents.Add(e));
 
                 var valueNames = nameEvents.SelectMany(e => e.ValueInfos.Select(d => d.Name)).Distinct();

@@ -19,7 +19,7 @@ using Microsoft.DotNet.Interactive.App.Connection;
 using Microsoft.DotNet.Interactive.App.Tests.Extensions;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Http;
-using Microsoft.DotNet.Interactive.Server;
+using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.Telemetry;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Microsoft.DotNet.Interactive.Utility;
@@ -47,6 +47,11 @@ public class CommandLineParserTests : IDisposable
 
         _output = output;
         _serviceCollection = new ServiceCollection();
+        var firstTimeUseNoticeSentinel = new FakeFirstTimeUseNoticeSentinel
+        {
+            SentinelExists = false
+        };
+
         _parser = CommandLineParser.Create(
             _serviceCollection,
             startServer: (options, invocationContext) =>
@@ -68,8 +73,7 @@ public class CommandLineParserTests : IDisposable
                 _startOptions = startupOptions;
                 return Task.FromResult(1);
             },
-            telemetry: new FakeTelemetry(),
-            firstTimeUseNoticeSentinel: new NopFirstTimeUseNoticeSentinel());
+            telemetrySender: new FakeTelemetrySender(firstTimeUseNoticeSentinel));
 
         _connectionFile = new FileInfo(Path.GetTempFileName());
         _kernelSpecInstallPath = new DirectoryInfo(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()));
@@ -219,35 +223,6 @@ public class CommandLineParserTests : IDisposable
             .HttpPortRange
             .Should()
             .BeEquivalentToRespectingRuntimeTypes(new HttpPortRange(3000, 4000));
-    }
-
-    [Fact]
-    public async Task http_command_enables_http_api_by_default()
-    {
-        await _parser.InvokeAsync("http");
-
-        _startOptions.EnableHttpApi.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task http_command_uses_default_port()
-    {
-        await _parser.InvokeAsync($"http");
-
-        using var scope = new AssertionScope();
-        _startOptions.HttpPort.Should().NotBeNull();
-        _startOptions.HttpPort.IsAuto.Should().BeTrue();
-    }
-
-    [Fact]
-    public void http_command__does_not_parse_http_port_range_option()
-    {
-        var result = _parser.Parse("http --http-port-range 6000-10000");
-
-        result.Errors
-            .Select(e => e.Message)
-            .Should()
-            .Contain(errorMessage => errorMessage == "Unrecognized command or argument '--http-port-range'.");
     }
 
     [Fact]
@@ -439,7 +414,6 @@ public class CommandLineParserTests : IDisposable
         options.DefaultKernel.Should().Be("csharp");
     }
 
-
     [Fact]
     public async Task stdio_command_does_not_enable_http_api_by_default()
     {
@@ -459,4 +433,9 @@ public class CommandLineParserTests : IDisposable
         options.DefaultKernel.Should().Be("bsharp");
     }
 
+    [Fact]
+    public void Parser_configuration_is_valid()
+    {
+        _parser.Configuration.ThrowIfInvalid();
+    }
 }

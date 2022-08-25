@@ -3,33 +3,39 @@
 
 import * as contracts from "./contracts";
 import { ConsoleCapture } from "./consoleCapture";
-import * as kernel from "./kernel";
+import { Kernel, IKernelCommandInvocation } from "./kernel";
 import { Logger } from "./logger";
 
-export class JavascriptKernel extends kernel.Kernel {
+export class JavascriptKernel extends Kernel {
     private suppressedLocals: Set<string>;
+    private capture: ConsoleCapture;
 
-    constructor() {
-        super("javascript");
+    constructor(name?: string) {
+        super(name ?? "javascript", "Javascript");
         this.suppressedLocals = new Set<string>(this.allLocalVariableNames());
         this.registerCommandHandler({ commandType: contracts.SubmitCodeType, handle: invocation => this.handleSubmitCode(invocation) });
         this.registerCommandHandler({ commandType: contracts.RequestValueInfosType, handle: invocation => this.handleRequestValueInfos(invocation) });
         this.registerCommandHandler({ commandType: contracts.RequestValueType, handle: invocation => this.handleRequestValue(invocation) });
+
+        this.capture = new ConsoleCapture();
     }
 
-    private async handleSubmitCode(invocation: kernel.IKernelCommandInvocation): Promise<void> {
+    private async handleSubmitCode(invocation: IKernelCommandInvocation): Promise<void> {
         const submitCode = <contracts.SubmitCode>invocation.commandEnvelope.command;
         const code = submitCode.code;
 
+        super.kernelInfo.localName;//?
+        super.kernelInfo.uri;//?
+        super.kernelInfo.remoteUri;//?
         invocation.context.publish({ eventType: contracts.CodeSubmissionReceivedType, event: { code }, command: invocation.commandEnvelope });
-
-        let capture: contracts.Disposable | undefined = new ConsoleCapture(invocation.context);
+        invocation.context.commandEnvelope.routingSlip;//?
+        this.capture.kernelInvocationContext = invocation.context;
         let result: any = undefined;
 
         try {
             const AsyncFunction = eval(`Object.getPrototypeOf(async function(){}).constructor`);
             const evaluator = AsyncFunction("console", code);
-            result = await evaluator(capture);
+            result = await evaluator(this.capture);
             if (result !== undefined) {
                 const formattedValue = formatValue(result, 'application/json');
                 const event: contracts.ReturnValueProduced = {
@@ -38,19 +44,14 @@ export class JavascriptKernel extends kernel.Kernel {
                 invocation.context.publish({ eventType: contracts.ReturnValueProducedType, event, command: invocation.commandEnvelope });
             }
         } catch (e) {
-            capture.dispose();
-            capture = undefined;
-
-            throw e;
+            throw e;//?
         }
         finally {
-            if (capture) {
-                capture.dispose();
-            }
+            this.capture.kernelInvocationContext = undefined;
         }
     }
 
-    private handleRequestValueInfos(invocation: kernel.IKernelCommandInvocation): Promise<void> {
+    private handleRequestValueInfos(invocation: IKernelCommandInvocation): Promise<void> {
         const valueInfos: contracts.KernelValueInfo[] = this.allLocalVariableNames().filter(v => !this.suppressedLocals.has(v)).map(v => ({ name: v }));
         const event: contracts.ValueInfosProduced = {
             valueInfos
@@ -59,7 +60,7 @@ export class JavascriptKernel extends kernel.Kernel {
         return Promise.resolve();
     }
 
-    private handleRequestValue(invocation: kernel.IKernelCommandInvocation): Promise<void> {
+    private handleRequestValue(invocation: IKernelCommandInvocation): Promise<void> {
         const requestValue = <contracts.RequestValue>invocation.commandEnvelope.command;
         const rawValue = this.getLocalVariable(requestValue.name);
         const formattedValue = formatValue(rawValue, requestValue.mimeType || 'application/json');
@@ -74,10 +75,18 @@ export class JavascriptKernel extends kernel.Kernel {
 
     private allLocalVariableNames(): string[] {
         const result: string[] = [];
-        for (const key in globalThis) {
-            if (typeof (<any>globalThis)[key] !== 'function') {
-                result.push(key);
+        try {
+            for (const key in globalThis) {
+                try {
+                    if (typeof (<any>globalThis)[key] !== 'function') {
+                        result.push(key);
+                    }
+                } catch (e) {
+                    Logger.default.error(`error getting value for ${key} : ${e}`);
+                }
             }
+        } catch (e) {
+            Logger.default.error(`error scanning globla variables : ${e}`);
         }
 
         return result;

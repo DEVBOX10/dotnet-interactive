@@ -7,6 +7,9 @@ import { ClientMapper } from './clientMapper';
 import * as contracts from './dotnet-interactive/contracts';
 import { getNotebookSpecificLanguage } from './interactiveNotebook';
 import { VariableGridRow } from './dotnet-interactive/webview/variableGridInterfaces';
+import * as versionSpecificFunctions from '../versionSpecificFunctions';
+import { DisposableSubscription } from './dotnet-interactive/disposables';
+import { isKernelEventEnvelope } from './dotnet-interactive';
 
 // creates a map of, e.g.:
 //   "dotnet-interactive.csharp" => "C# (.NET Interactive)""
@@ -19,10 +22,9 @@ const languageIdToAliasMap = new Map(
 );
 
 export function registerVariableExplorer(context: vscode.ExtensionContext, clientMapper: ClientMapper) {
-
     context.subscriptions.push(vscode.commands.registerCommand('dotnet-interactive.shareValueTo', async (variableInfo: { kernelName: string, valueName: string } | undefined) => {
         if (variableInfo && vscode.window.activeNotebookEditor) {
-            const client = await clientMapper.tryGetClient(vscode.window.activeNotebookEditor.document.uri);
+            const client = await clientMapper.tryGetClient(versionSpecificFunctions.getNotebookDocumentFromEditor(vscode.window.activeNotebookEditor).uri);
             if (client) {
                 // creates a map of _only_ the available languages in this notebook, e.g.:
                 //   "C# (.NET Interactive)" => "dotnet-interactive.csharp"
@@ -36,6 +38,7 @@ export function registerVariableExplorer(context: vscode.ExtensionContext, clien
 
                     return <[string, string]>[displayLanguage, k.name];
                 }));
+
                 const kernelDisplayValues = [...availableKernelDisplayNamesToLanguageNames.keys()];
                 const selectedKernelName = await vscode.window.showQuickPick(kernelDisplayValues, { title: `Share value [${variableInfo.valueName}] from [${variableInfo.kernelName}] to ...` });
                 if (selectedKernelName) {
@@ -69,7 +72,7 @@ export function registerVariableExplorer(context: vscode.ExtensionContext, clien
 }
 
 class WatchWindowTableViewProvider implements vscode.WebviewViewProvider {
-    private currentNotebookSubscription: contracts.DisposableSubscription | undefined = undefined;
+    private currentNotebookSubscription: DisposableSubscription | undefined = undefined;
     private webview: vscode.Webview | undefined = undefined;
 
     constructor(private readonly clientMapper: ClientMapper, private readonly extensionPath: string) {
@@ -87,53 +90,60 @@ class WatchWindowTableViewProvider implements vscode.WebviewViewProvider {
         // only load this once
         const apiFileUri = this.webview.asWebviewUri(vscode.Uri.file(path.join(this.extensionPath, 'resources', 'variableGrid.js')));
         const html = `
-        <style>
-            table, th, td {
-                border-collapse: collapse;
-                border: 1px solid var(--vscode-quickInputList-focusBackground);
-            }
-            table {
-                width: 100%;
-            }
-            th {
-                color: var(--vscode-quickInputList-focusForeground);
-                background-color: var(--vscode-quickInputList-focusBackground);
-            }
-            td {
-                text-align: left;
-            }
+        <html>
+            <head>
+                <meta charset="utf-8">
+            </head>
+            <body>
+                <style>
+                    table, th, td {
+                        border-collapse: collapse;
+                        border: 1px solid var(--vscode-quickInputList-focusBackground);
+                    }
+                    table {
+                        width: 100%;
+                    }
+                    th {
+                        color: var(--vscode-quickInputList-focusForeground);
+                        background-color: var(--vscode-quickInputList-focusBackground);
+                    }
+                    td {
+                        text-align: left;
+                    }
 
-            input {
-                background-color: var(--vscode-settings-textInputBackground);
-                border: var(--vscode-settings-textInputBorder);
-                color: var(--vscode-settings-textInputForeground);
-            }
-            button {
-                background-color: var(--vscode-button-background);
-                border: var(--vscode-button-border);
-                color: var(--vscode-button-foreground);
-            }
-            button[hover] {
-                background-color: var(--vscode-button-hoverBackground);
-            }
+                    input {
+                        background-color: var(--vscode-settings-textInputBackground);
+                        border: var(--vscode-settings-textInputBorder);
+                        color: var(--vscode-settings-textInputForeground);
+                    }
+                    button {
+                        background-color: var(--vscode-button-background);
+                        border: var(--vscode-button-border);
+                        color: var(--vscode-button-foreground);
+                    }
+                    button[hover] {
+                        background-color: var(--vscode-button-hoverBackground);
+                    }
 
-            .name-column {
-                width: 20%;
-            }
-            .value-column {
-            }
-            .kernel-column {
-                width: 20%;
-            }
-            .share-column {
-                width: 10%;
-            }
-        </style>
-        <script defer type="text/javascript" src="${apiFileUri.toString()}"></script>
-        <label for="filter">Filter</label>
-        <input id="filter" type="text" />
-        <button id="clear">Clear</button>
-        <div id="content"></div>
+                    .name-column {
+                        width: 20%;
+                    }
+                    .value-column {
+                    }
+                    .kernel-column {
+                        width: 20%;
+                    }
+                    .share-column {
+                        width: 10%;
+                    }
+                </style>
+                <script defer type="text/javascript" src="${apiFileUri.toString()}"></script>
+                <label for="filter">Filter</label>
+                <input id="filter" type="text" />
+                <button id="clear">Clear</button>
+                <div id="content"></div>
+            </body>
+        </html>
         `;
         this.webview.html = html;
         this.refresh();
@@ -150,33 +160,43 @@ class WatchWindowTableViewProvider implements vscode.WebviewViewProvider {
         this.currentNotebookSubscription?.dispose();
         this.currentNotebookSubscription = undefined;
         if (vscode.window.activeNotebookEditor) {
-            const document = vscode.window.activeNotebookEditor.document;
-            const client = await this.clientMapper.getOrAddClient(document.uri);
-            this.currentNotebookSubscription = client.channel.subscribeToKernelEvents(eventEnvelope => {
-                switch (eventEnvelope.eventType) {
-                    case contracts.CommandSucceededType:
-                    case contracts.CommandFailedType:
-                    case contracts.CommandCancelledType:
-                        if (eventEnvelope.command?.commandType === contracts.SubmitCodeType) {
-                            this.refresh();
+            const notebook = versionSpecificFunctions.getNotebookDocumentFromEditor(vscode.window.activeNotebookEditor);
+            const client = await this.clientMapper.getOrAddClient(notebook.uri);
+
+            let sub = client.channel.receiver.subscribe({
+                next: (envelope) => {
+                    if (isKernelEventEnvelope(envelope)) {
+                        switch (envelope.eventType) {
+                            case contracts.CommandSucceededType:
+                            case contracts.CommandFailedType:
+                            case contracts.CommandCancelledType:
+                                if (envelope.command?.commandType === contracts.SubmitCodeType) {
+                                    this.refresh();
+                                }
+                                break;
                         }
-                        break;
+                    }
                 }
             });
 
-            for (const kernel of client.kernel.childKernels) {
+            this.currentNotebookSubscription = { dispose: () => sub.unsubscribe() };
+
+            const kernelNames = [...client.kernel.childKernels.map(k => k.name)];
+            kernelNames.push('value');
+
+            for (const name of kernelNames) {
                 try {
-                    const valueInfos = await client.requestValueInfos(kernel.name);
+                    const valueInfos = await client.requestValueInfos(name);
                     for (const valueInfo of valueInfos.valueInfos) {
                         try {
-                            const value = await client.requestValue(valueInfo.name, kernel.name);
+                            const value = await client.requestValue(valueInfo.name, name);
                             const valueName = value.name;
                             const valueValue = value.formattedValue.value;
-                            const commandUrl = `command:dotnet-interactive.shareValueTo?${encodeURIComponent(JSON.stringify({ valueName, kernelName: kernel.name }))}`;
+                            const commandUrl = `command:dotnet-interactive.shareValueTo?${encodeURIComponent(JSON.stringify({ valueName, kernelName: name }))}`;
                             rows.push({
                                 name: valueName,
                                 value: valueValue,
-                                kernel: `#!${kernel.name}`,
+                                kernel: `#!${name}`,
                                 link: commandUrl,
                             });
                         } catch (e) {

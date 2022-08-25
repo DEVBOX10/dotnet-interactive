@@ -4,15 +4,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { debounce } from './utilities';
-import { Document, NotebookCellKind, NotebookDocumentBackup } from './interfaces/vscode-like';
+import { NotebookCellKind, NotebookDocumentBackup } from './interfaces/vscode-like';
 import { ClientMapper } from './clientMapper';
 import { Diagnostic } from './dotnet-interactive/contracts';
+import { Uri } from 'vscode';
 
 export const notebookCellLanguages: Array<string> = [
     'dotnet-interactive.csharp',
     'dotnet-interactive.fsharp',
     'dotnet-interactive.html',
     'dotnet-interactive.javascript',
+    'dotnet-interactive.mermaid',
     'dotnet-interactive.pwsh',
     'dotnet-interactive.sql',
     'dotnet-interactive.kql',
@@ -30,12 +32,12 @@ export function getSimpleLanguage(language: string): string {
     return language;
 }
 
-export function getNotebookSpecificLanguage(language: string): string {
-    if (!language.startsWith(notebookLanguagePrefix) && language !== 'markdown') {
+export function getNotebookSpecificLanguage(language?: string): string {
+    if (language && !language.startsWith(notebookLanguagePrefix) && language !== 'markdown') {
         return notebookLanguagePrefix + language;
     }
 
-    return language;
+    return language ?? "";
 }
 
 export function isDotnetInteractiveLanguage(language: string): boolean {
@@ -48,7 +50,7 @@ export function isJupyterNotebookViewType(viewType: string): boolean {
     return viewType === jupyterViewType;
 }
 
-export function languageToCellKind(language: string): NotebookCellKind {
+export function languageToCellKind(language?: string): NotebookCellKind {
     switch (language) {
         case 'markdown':
             return NotebookCellKind.Markup;
@@ -80,10 +82,10 @@ export function backupNotebook(rawData: Uint8Array, location: string): Promise<N
     });
 }
 
-export function notebookCellChanged(clientMapper: ClientMapper, cellDocument: Document, language: string, diagnosticDelay: number, callback: (diagnostics: Array<Diagnostic>) => void) {
-    debounce(`diagnostics-${cellDocument.uri.toString()}`, diagnosticDelay, async () => {
-        const client = await clientMapper.getOrAddClient(cellDocument.notebook?.uri || cellDocument.uri);
-        const diagnostics = await client.getDiagnostics(language, cellDocument.getText());
+export function notebookCellChanged(clientMapper: ClientMapper, documentUri: Uri, documentText: string, language: string, diagnosticDelay: number, callback: (diagnostics: Array<Diagnostic>) => void) {
+    debounce(`diagnostics-${documentUri.toString()}`, diagnosticDelay, async () => {
+        const client = await clientMapper.getOrAddClient(documentUri);
+        const diagnostics = await client.getDiagnostics(language, documentText);
         callback(diagnostics);
     });
 }

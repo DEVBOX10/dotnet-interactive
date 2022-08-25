@@ -9,18 +9,13 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Assent;
 using FluentAssertions;
-using Microsoft.AspNetCore.Html;
-using Microsoft.CodeAnalysis;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharpProject.Commands;
 using Microsoft.DotNet.Interactive.CSharpProject.Events;
-using Microsoft.DotNet.Interactive.CSharpProject.Tools;
 using Microsoft.DotNet.Interactive.Events;
-using Microsoft.DotNet.Interactive.Formatting;
-using Microsoft.DotNet.Interactive.Server;
+using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Microsoft.DotNet.Interactive.ValueSharing;
-using Microsoft.DotNet.Interactive.VSCode;
 using Pocket;
 using Xunit;
 using Xunit.Abstractions;
@@ -90,7 +85,7 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Tests
                 .BeEquivalentToRespectingRuntimeTypes(
                     originalEnvelope,
                     o => o.Excluding(envelope => envelope.Event.Command.Properties)
-                          .Excluding(envelope => ignoredProperties.Contains($"{envelope.SelectedMemberInfo.DeclaringType.Name}.{envelope.SelectedMemberInfo.Name}"))
+                          .Excluding(memberInfo => ignoredProperties.Contains($"{memberInfo.DeclaringType.Name}.{memberInfo.Name}"))
                     );
         }
 
@@ -118,7 +113,7 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Tests
                                  .SetInteractive(Debugger.IsAttached);
 
             @event.Command?.SetToken("the-token");
-
+            
             var json = KernelEventEnvelope.Serialize(@event);
 
             this.Assent(Indent(json), configuration);
@@ -161,6 +156,7 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Tests
             foreach (var command in commands().Select(c =>
             {
                 c.Properties["id"] = "command-id";
+                c.RoutingSlip.TryAdd(new Uri("kernel://somelocation/kernelName"));
                 return c;
             }))
             {
@@ -182,6 +178,8 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Tests
             foreach (var @event in events().Select(e =>
             {
                 e.Command.Properties["id"] = "command-id";
+                e.Command.RoutingSlip.TryAdd(new Uri("kernel://somelocation/kernelName"));
+                e.RoutingSlip.TryAdd(new Uri("kernel://somelocation/kernelName"));
                 return e;
             }))
             {
@@ -205,7 +203,7 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Tests
                     })),
                     new[]
                     {
-                        new ProjectItem("./Program.cs", new[] { "some-region" })
+                        new ProjectItem("./Program.cs", new[] { "some-region" }, new Dictionary<string, string>{["some-region"] = string.Empty})
                     });
             }
         }

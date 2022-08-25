@@ -6,11 +6,13 @@ import { describe } from "mocha";
 import { IKernelEventObserver } from "../src/kernel";
 import { KernelInvocationContext } from "../src/kernelInvocationContext";
 import * as contracts from "../src/contracts";
+import { Guid } from "../src/tokenGenerator";
+import * as disposables from "../src/disposables";
 
 describe("dotnet-interactive", () => {
 
-    let toDispose: contracts.Disposable[] = [];
-    function use<T extends contracts.Disposable>(disposable: T): T {
+    let toDispose: disposables.Disposable[] = [];
+    function use<T extends disposables.Disposable>(disposable: T): T {
         toDispose.push(disposable);
         return disposable;
     }
@@ -32,7 +34,8 @@ describe("dotnet-interactive", () => {
             };
             return {
                 commandType: contracts.SubmitCodeType,
-                command: command
+                command: command,
+                token: Guid.create().toString()
             };
         }
         let commadnEnvelope = makeSubmitCode("123");
@@ -41,7 +44,7 @@ describe("dotnet-interactive", () => {
             let context = use(KernelInvocationContext.establish(commadnEnvelope));
 
             let ew = makeEventWatcher();
-            context.subscribeToKernelEvents(ew.watcher);
+            context.kernelEvents.subscribe(ew.watcher);
 
             context.complete(commadnEnvelope);
 
@@ -49,11 +52,27 @@ describe("dotnet-interactive", () => {
             expect(ew.events[0].eventType).to.eql(contracts.CommandSucceededType);
         });
 
+        it("is established only once for same command", async () => {
+            let context = use(KernelInvocationContext.establish(commadnEnvelope));
+            let secondContext = use(KernelInvocationContext.establish(commadnEnvelope));
+
+            expect(context).to.equal(secondContext);
+            expect(context.command).to.equal(secondContext.command);
+        });
+
+        it("is appends child comamnds", async () => {
+            let context = use(KernelInvocationContext.establish(commadnEnvelope));
+            let secondContext = use(KernelInvocationContext.establish(makeSubmitCode("456")));
+
+            expect(context).to.equal(secondContext);
+            expect(context.command).to.equal(secondContext.command);
+        });
+
         it("does not publish CommandFailed when Complete is called", async () => {
             let context = use(KernelInvocationContext.establish(commadnEnvelope));
 
             let ew = makeEventWatcher();
-            context.subscribeToKernelEvents(ew.watcher);
+            context.kernelEvents.subscribe(ew.watcher);
 
             context.complete(commadnEnvelope);
 
@@ -74,7 +93,7 @@ describe("dotnet-interactive", () => {
             let context = use(KernelInvocationContext.establish(commadnEnvelope));
 
             let ew = makeEventWatcher();
-            context.subscribeToKernelEvents(ew.watcher);
+            context.kernelEvents.subscribe(ew.watcher);
 
             context.complete(commadnEnvelope);
 
@@ -99,7 +118,7 @@ describe("dotnet-interactive", () => {
             let context = use(KernelInvocationContext.establish(commadnEnvelope));
 
             let ew = makeEventWatcher();
-            context.subscribeToKernelEvents(ew.watcher);
+            context.kernelEvents.subscribe(ew.watcher);
 
             context.fail("oops!");
 
@@ -111,7 +130,7 @@ describe("dotnet-interactive", () => {
             let context = use(KernelInvocationContext.establish(commadnEnvelope));
 
             let ew = makeEventWatcher();
-            context.subscribeToKernelEvents(ew.watcher);
+            context.kernelEvents.subscribe(ew.watcher);
 
             context.fail("oops!");
 
@@ -124,7 +143,7 @@ describe("dotnet-interactive", () => {
             let context = use(KernelInvocationContext.establish(commadnEnvelope));
 
             let ew = makeEventWatcher();
-            context.subscribeToKernelEvents(ew.watcher);
+            context.kernelEvents.subscribe(ew.watcher);
 
             context.fail("oops!");
 
@@ -149,7 +168,7 @@ describe("dotnet-interactive", () => {
             let outer = use(KernelInvocationContext.establish(outerSubmitCode));
 
             let ew = makeEventWatcher();
-            outer.subscribeToKernelEvents(ew.watcher);
+            outer.kernelEvents.subscribe(ew.watcher);
 
             let innerSubmitCode = makeSubmitCode("def");
             let inner = use(KernelInvocationContext.establish(innerSubmitCode));
@@ -166,7 +185,7 @@ describe("dotnet-interactive", () => {
             let outer = use(KernelInvocationContext.establish(outerSubmitCode));
 
             let ew = makeEventWatcher();
-            outer.subscribeToKernelEvents(ew.watcher);
+            outer.kernelEvents.subscribe(ew.watcher);
 
             let innerSubmitCode = makeSubmitCode("def");
             let inner = use(KernelInvocationContext.establish(innerSubmitCode));
@@ -192,7 +211,7 @@ describe("dotnet-interactive", () => {
             let outer = use(KernelInvocationContext.establish(outerSubmitCode));
 
             let ew = makeEventWatcher();
-            outer.subscribeToKernelEvents(ew.watcher);
+            outer.kernelEvents.subscribe(ew.watcher);
 
             let innerSubmitCode = makeSubmitCode("def");
             let inner = use(KernelInvocationContext.establish(innerSubmitCode));
@@ -221,7 +240,7 @@ describe("dotnet-interactive", () => {
             let outer = use(KernelInvocationContext.establish(outerSubmitCode));
 
             let ew = makeEventWatcher();
-            outer.subscribeToKernelEvents(ew.watcher);
+            outer.kernelEvents.subscribe(ew.watcher);
 
             let innerSubmitCode = makeSubmitCode("def");
             let inner = use(KernelInvocationContext.establish(innerSubmitCode));
@@ -263,7 +282,7 @@ describe("dotnet-interactive", () => {
             let outer = use(KernelInvocationContext.establish(outerSubmitCode));
 
             let ew = makeEventWatcher();
-            outer.subscribeToKernelEvents(ew.watcher);
+            outer.kernelEvents.subscribe(ew.watcher);
 
             let innerSubmitCode = makeSubmitCode("def");
             let inner = use(KernelInvocationContext.establish(innerSubmitCode));
@@ -280,7 +299,7 @@ describe("dotnet-interactive", () => {
             let outer = use(KernelInvocationContext.establish(outerSubmitCode));
 
             let ew = makeEventWatcher();
-            outer.subscribeToKernelEvents(ew.watcher);
+            outer.kernelEvents.subscribe(ew.watcher);
 
             let innerSubmitCode = makeSubmitCode("def");
             let inner = use(KernelInvocationContext.establish(innerSubmitCode));

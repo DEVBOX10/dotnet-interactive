@@ -91,7 +91,8 @@ describe('Miscellaneous tests', () => {
                 '--working-dir',
                 'replacement-working-dir'
             ],
-            workingDirectory: 'replacement-global-storage-path'
+            workingDirectory: 'replacement-global-storage-path',
+            env: {}
         });
     });
 
@@ -166,7 +167,8 @@ describe('Miscellaneous tests', () => {
             data: {
                 'text/html': 'html',
                 'text/plain': 'text'
-            }
+            },
+            metadata: {}
         };
         expect(isDisplayOutput(display)).to.be.true;
     });
@@ -174,6 +176,7 @@ describe('Miscellaneous tests', () => {
     it('cell text output shape can be detected', () => {
         // strongly typed to catch interface changes
         const text: TextElement = {
+            name: 'some name',
             text: 'some text'
         };
         expect(isTextOutput(text)).to.be.true;

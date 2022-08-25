@@ -28,7 +28,7 @@ namespace Microsoft.DotNet.Interactive
 
         public PackageRestoreContext()
         {
-            _dependencyProvider = new DependencyProvider(AssemblyProbingPaths, NativeProbingRoots);
+            _dependencyProvider = new DependencyProvider(AssemblyProbingPaths, NativeProbingRoots, useResultsCache: true);
             AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
         }
 
@@ -150,7 +150,7 @@ namespace Microsoft.DotNet.Interactive
 
             if (!string.IsNullOrWhiteSpace(packageName) &&              // Name not empty
                 !string.IsNullOrWhiteSpace(packageVersion) &&           // Version not empty
-                Char.IsDigit(packageVersion.Trim()[0]))                 // Version starts with a number
+                char.IsDigit(packageVersion.Trim()[0]))                 // Version starts with a number
             {
                 try
                 {
@@ -242,8 +242,7 @@ namespace Microsoft.DotNet.Interactive
                 ".csx", 
                 packageManagerTextLines, 
                 reportError, 
-                executionTfm, 
-                timeout: 60000);
+                executionTfm);
         }
 
         public async Task<PackageRestoreResult> RestoreAsync()
@@ -300,7 +299,6 @@ namespace Microsoft.DotNet.Interactive
                     _requestedRestoreSources.TryRemove(s, out _);
                     _resolvedRestoreSources.TryAdd(s, s);
                 }
-
 
                 packageRestoreResult =
                     new PackageRestoreResult(

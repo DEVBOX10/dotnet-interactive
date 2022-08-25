@@ -4,13 +4,11 @@
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
-using Microsoft.DotNet.Interactive.Utility;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Recipes;
 using Microsoft.DotNet.Interactive.CSharpProject.Servers.Roslyn.Instrumentation;
 using Xunit;
-using Microsoft.DotNet.Interactive.CSharpProject.Utility;
 
 namespace Microsoft.DotNet.Interactive.CSharpProject.Tests.Instrumentation
 {
@@ -66,7 +64,7 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Tests.Instrumentation
         [Fact]
         public async Task It_Emits_Right_Format_With_Sentinels_Around_JSONAsync()
         {
-            using (var output = await ConsoleOutput.Capture())
+            using (var output = await Utility.ConsoleOutput.Capture())
             {
                 InstrumentationEmitter.EmitProgramState(programStateJson);
                 output.StandardOutput.Should().MatchEquivalentOf($"{ InstrumentationEmitter.Sentinel}*{InstrumentationEmitter.Sentinel}");
@@ -82,25 +80,25 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Tests.Instrumentation
         [Fact]
         public void Emitted_JSON_Has_Correct_Variable_Value_For_Int()
         {
-            getJson().Locals.Where(v => v.Name == "a").First().Value.Should().Equals(1);
+            getJson().Locals.First(v => v.Name == "a").Value.Should().BeEquivalentTo(JToken.FromObject(1));
         }
 
         [Fact]
         public void Emitted_Json_Has_Correct_DeclaredAt_Start_For_A()
         {
-            getJson().Locals.Where(v => v.Name == "a").First().RangeOfLines.Start.Should().Equals(10);
+            getJson().Locals.First(v => v.Name == "a").RangeOfLines.Start.Should().Be(10);
         }
 
         [Fact]
         public void Emitted_Json_Has_Correct_DeclaredAt_End_For_A()
         {
-            getJson().Locals.Where(v => v.Name == "a").First().RangeOfLines.End.Should().Equals(11);
+            getJson().Locals.First(v => v.Name == "a").RangeOfLines.End.Should().Be(11);
         }
 
         [Fact]
         public void Emitted_JSON_Has_Correct_Variable_Value_For_String()
         {
-            getJson().Locals.Where(v => v.Name == "b").First().Value.ToString().Should().Be("two");
+            getJson().Locals.First(v => v.Name == "b").Value.ToString().Should().Be("two");
         }
 
         [Fact]
