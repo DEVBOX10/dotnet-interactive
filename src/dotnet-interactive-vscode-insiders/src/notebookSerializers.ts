@@ -14,7 +14,7 @@ function toInteractiveDocumentElement(cell: vscode.NotebookCellData): contracts.
     const outputs = cell.outputs || [];
     return {
         executionOrder: cell.executionSummary?.executionOrder ?? 0,
-        language: getSimpleLanguage(cell.languageId),
+        kernelName: getSimpleLanguage(cell.languageId),
         contents: cell.value,
         outputs: outputs.map(vsCodeCellOutputToContractCellOutput)
     };
@@ -54,16 +54,16 @@ export function createAndRegisterNotebookSerializers(context: vscode.ExtensionCo
     };
 
     const serializers = new Map<string, vscode.NotebookSerializer>();
-    serializers.set('dotnet-interactive', createAndRegisterSerializer(contracts.DocumentSerializationType.Dib, 'dotnet-interactive'));
-    serializers.set('jupyter-notebook', createAndRegisterSerializer(contracts.DocumentSerializationType.Ipynb, 'dotnet-interactive-jupyter'));
+    serializers.set('polyglot-notebook', createAndRegisterSerializer(contracts.DocumentSerializationType.Dib, 'polyglot-notebook'));
+    serializers.set('jupyter-notebook', createAndRegisterSerializer(contracts.DocumentSerializationType.Ipynb, 'polyglot-notebook-jupyter'));
     return serializers;
 }
 
 function toVsCodeNotebookCellData(cell: contracts.InteractiveDocumentElement): vscode.NotebookCellData {
     const cellData = new vscode.NotebookCellData(
-        <number>languageToCellKind(cell.language),
+        <number>languageToCellKind(cell.kernelName),
         cell.contents,
-        getNotebookSpecificLanguage(cell.language));
+        getNotebookSpecificLanguage(cell.kernelName));
     cellData.outputs = cell.outputs.map(outputElementToVsCodeCellOutput);
     return cellData;
 }

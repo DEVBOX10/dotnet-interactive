@@ -3,14 +3,15 @@
 
 using System;
 using System.Collections.Generic;
-
+using System.Diagnostics;
 using Assent;
 using Microsoft.DotNet.Interactive.Documents.Jupyter;
+using Microsoft.DotNet.Interactive.Jupyter.Messaging;
 using Microsoft.DotNet.Interactive.Jupyter.Protocol;
 using Microsoft.DotNet.Interactive.Jupyter.ZMQ;
 using Xunit;
 
-using Message = Microsoft.DotNet.Interactive.Jupyter.ZMQ.Message;
+using Message = Microsoft.DotNet.Interactive.Jupyter.Messaging.Message;
 
 namespace Microsoft.DotNet.Interactive.Jupyter.Tests
 {
@@ -23,7 +24,7 @@ namespace Microsoft.DotNet.Interactive.Jupyter.Tests
             _configuration = new Configuration()
                 .UsingExtension("json");
 
-            _configuration = _configuration.SetInteractive(false);
+            _configuration = _configuration.SetInteractive(Debugger.IsAttached);
         }
 
         [Fact]

@@ -21,6 +21,8 @@ import {
     KernelEventEnvelope,
     KernelEventEnvelopeObserver,
     KernelEventType,
+    KernelInfoProduced,
+    KernelInfoProducedType,
     RequestCompletions,
     RequestCompletionsType,
     RequestDiagnostics,
@@ -46,7 +48,9 @@ import {
     SubmitCode,
     SubmitCodeType,
     CancelType,
-    Cancel
+    Cancel,
+    ErrorProducedType,
+    ErrorProduced
 } from './dotnet-interactive/contracts';
 import { clearDebounce, createOutput } from './utilities';
 
@@ -55,7 +59,7 @@ import { CompositeKernel } from './dotnet-interactive/compositeKernel';
 import { Guid } from './dotnet-interactive/tokenGenerator';
 import { KernelHost } from './dotnet-interactive/kernelHost';
 import { KernelCommandAndEventChannel } from './DotnetInteractiveChannel';
-import { isKernelEventEnvelope } from './dotnet-interactive/connection';
+import * as connection from './dotnet-interactive/connection';
 import { DisposableSubscription } from './dotnet-interactive/disposables';
 
 export interface ErrorOutputCreator {
@@ -68,6 +72,8 @@ export interface InteractiveClientConfiguration {
 }
 
 export class InteractiveClient {
+    private disposables: (() => void)[] = [];
+    private nextExecutionCount = 1;
     private nextOutputId: number = 1;
     private nextToken: number = 1;
     private tokenEventObservers: Map<string, Array<KernelEventEnvelopeObserver>> = new Map<string, Array<KernelEventEnvelopeObserver>>();
@@ -76,21 +82,21 @@ export class InteractiveClient {
     private _kernel: CompositeKernel;
     private _kernelHost: KernelHost;
     constructor(readonly config: InteractiveClientConfiguration) {
-        config.channel.receiver.subscribe({
-            next: (envelope) => {
-                if (isKernelEventEnvelope(envelope)) {
-                    this.eventListener(envelope);
-                }
-            }
-        });
-
         this._kernel = new CompositeKernel("vscode");
         this._kernelHost = new KernelHost(this._kernel, config.channel.sender, config.channel.receiver, "kernel://vscode");
 
-        this._kernelHost.connectProxyKernelOnDefaultConnector('csharp', undefined, ['c#', 'C#']);
-        this._kernelHost.connectProxyKernelOnDefaultConnector('fsharp', undefined, ['fs', 'F#']);
-        this._kernelHost.connectProxyKernelOnDefaultConnector('pwsh', undefined, ['powershell']);
-        this._kernelHost.connectProxyKernelOnDefaultConnector('mermaid', undefined, []);
+        config.channel.receiver.subscribe({
+            next: (envelope) => {
+                if (connection.isKernelEventEnvelope(envelope)) {
+                    this.eventListener(envelope);
+
+                    if (envelope.eventType === KernelInfoProducedType) {
+                        const kernelInfoProduced = <KernelInfoProduced>envelope.event;
+                        connection.ensureOrUpdateProxyForKernelInfo(kernelInfoProduced, this._kernel);
+                    }
+                }
+            }
+        });
 
         this._kernelHost.connect();
     }
@@ -124,7 +130,7 @@ export class InteractiveClient {
         clearDebounce(`sighelp-${requestId}`);
     }
 
-    execute(source: string, language: string, outputObserver: { (outputs: Array<vscodeLike.NotebookCellOutput>): void }, diagnosticObserver: (diags: Array<Diagnostic>) => void, configuration: { token?: string | undefined, id?: string | undefined } | undefined): Promise<void> {
+    execute(source: string, language: string, outputObserver: { (outputs: Array<vscodeLike.NotebookCellOutput>): void }, diagnosticObserver: (diags: Array<Diagnostic>) => void, configuration: { token?: string | undefined, id?: string | undefined } | undefined): Promise<boolean> {
         if (configuration !== undefined && configuration.id !== undefined) {
             this.clearExistingLanguageServiceRequests(configuration.id);
         }
@@ -155,7 +161,7 @@ export class InteractiveClient {
                         case CommandSucceededType:
                             if (eventEnvelope.command?.id === commandId) {
                                 // only complete this promise if it's the root command
-                                resolve();
+                                resolve(!failureReported);
                             }
                             break;
                         case CommandFailedType:
@@ -171,10 +177,17 @@ export class InteractiveClient {
                                 }
                             }
                             break;
+                        case ErrorProducedType: {
+                            const err = <ErrorProduced>eventEnvelope.event;
+                            const errorOutput = this.config.createErrorOutput(err.message, this.getNextOutputId());
+                            outputs.push(errorOutput);
+                            reportOutputs();
+                            failureReported = true;
+                        }
                         case DiagnosticsProducedType:
                             {
                                 const diags = <DiagnosticsProduced>eventEnvelope.event;
-                                diagnostics.push(...diags.diagnostics);
+                                diagnostics.push(...(diags.diagnostics ?? []));
                                 reportDiagnostics();
                             }
                             break;
@@ -328,6 +341,14 @@ export class InteractiveClient {
 
     dispose() {
         this.config.channel.dispose();
+        for (let disposable of this.disposables) {
+            disposable();
+        }
+
+    }
+
+    public registerForDisposal(disposable: () => void) {
+        this.disposables.push(disposable);
     }
 
     private submitCommandAndGetResult<TEvent extends KernelEvent>(command: KernelCommand, commandType: KernelCommandType, expectedEventType: KernelEventType, token: string | undefined): Promise<TEvent> {
@@ -486,6 +507,16 @@ export class InteractiveClient {
     private IsEncodedMimeType(mimeType: string): boolean {
         const encdodedMimetypes = new Set<string>(["image/png", "image/jpeg", "image/gif"]);
         return encdodedMimetypes.has(mimeType);
+    }
+
+    resetExecutionCount() {
+        this.nextExecutionCount = 1;
+    }
+
+    getNextExecutionCount(): number {
+        const next = this.nextExecutionCount;
+        this.nextExecutionCount++;
+        return next;
     }
 
     private getNextOutputId(): string {

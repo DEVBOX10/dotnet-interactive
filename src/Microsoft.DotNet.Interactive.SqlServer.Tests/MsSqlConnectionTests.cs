@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 
 using FluentAssertions;
+using FluentAssertions.Execution;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
@@ -70,6 +71,44 @@ SELECT TOP 100 * FROM Person.Person
             events.Should()
                 .ContainSingle<DisplayedValueProduced>(e =>
                     e.FormattedValues.Any(f => f.MimeType == HtmlFormatter.MimeType));
+        }
+
+        [MsSqlFact]
+        public async Task null_values_are_preserved_as_null_references()
+        {
+            var connectionString = MsSqlFactAttribute.GetConnectionStringForTests();
+            using var kernel = await CreateKernelAsync();
+            var result = await kernel.SubmitCodeAsync(
+                $"#!connect mssql --kernel-name adventureworks \"{connectionString}\"");
+
+            result.KernelEvents
+                .ToSubscribedList()
+                .Should()
+                .NotContainErrors();
+
+            result = await kernel.SubmitCodeAsync($@"
+#!sql-adventureworks
+select top 10 AddressLine1, AddressLine2 from Person.Address
+");
+
+            var events = result.KernelEvents.ToSubscribedList();
+            using var _ = new AssertionScope();
+
+            events.ShouldDisplayTabularDataResourceWhich()
+                .Schema
+                .Fields
+                .Should()
+                .ContainSingle(f => f.Name == "AddressLine2")
+                .Which
+                .Type
+                .Should()
+                .Be(TableSchemaFieldType.String);
+
+            events.ShouldDisplayTabularDataResourceWhich()
+                .Data
+                .SelectMany(row => row.Where(r => r.Key == "AddressLine2").Select(r => r.Value))
+                .Should()
+                .AllBeEquivalentTo((object)null);
         }
 
         [MsSqlFact]
@@ -387,7 +426,28 @@ select @x, @y";
                   .Should()
                   .ContainValues(new object[] { "Hello world!", 123 });
         }
-        
+
+        [MsSqlFact]
+        public async Task An_input_type_hint_is_set_for_connection_strings()
+        {
+            using var kernel = await CreateKernelAsync();
+
+            RequestInput requestInput = null;
+
+            kernel.RegisterCommandHandler<RequestInput>((command, context) =>
+            {
+                requestInput = command;
+                context.Publish(new InputProduced("hello!", requestInput));
+                return Task.CompletedTask;
+            });
+
+            kernel.SetDefaultTargetKernelNameForCommand(typeof(RequestInput), kernel.Name);
+
+            await kernel.SendAsync(new SubmitCode("#!connect mssql @input:connectionString"));
+
+            requestInput.InputTypeHint.Should().Be("connectionstring-mssql");
+        }
+
         public void Dispose()
         {
             DataExplorer.ResetToDefault();

@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
+using System.CommandLine.Binding;
 using System.CommandLine.Builder;
 using System.CommandLine.Parsing;
 using System.IO;
@@ -22,6 +23,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
         private readonly Kernel _kernel;
         private Parser _directiveParser;
         private RootCommand _rootCommand;
+        private Dictionary<Type, string> _customInputTypeHints;
 
         public SubmissionParser(Kernel kernel)
         {
@@ -96,6 +98,11 @@ namespace Microsoft.DotNet.Interactive.Parsing
                 switch (node)
                 {
                     case DirectiveNode directiveNode:
+                        if (KernelInvocationContext.Current is {} context)
+                        {
+                            context.CurrentlyParsingDirectiveNode = directiveNode;
+                        }
+                       
                         var parseResult = directiveNode.GetDirectiveParseResult();
 
                         if (parseResult.Errors.Any())
@@ -210,7 +217,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
                     case LanguageNode languageNode:
                     {
                         if (commands.Count > 0 &&
-                            commands[commands.Count - 1] is SubmitCode previous)
+                            commands[^1] is SubmitCode previous)
                         {
                             previous.Code += languageNode.Text;
                         }
@@ -234,7 +241,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
             foreach (var kernelName in nugetRestoreOnKernels)
             {
-                var kernel = _kernel.FindKernel(kernelName);
+                var kernel = _kernel.FindKernelByName(kernelName);
 
                 if (kernel?.SubmissionParser.GetDirectiveParser() is { } parser)
                 {
@@ -303,7 +310,7 @@ namespace Microsoft.DotNet.Interactive.Parsing
                 var kernel = _kernel switch
                 {
                     // The parent kernel is the one where a directive would be defined, and therefore the one that should decide whether to accept this submission. 
-                    CompositeKernel composite => composite.FindKernel(node.ParentKernelName),
+                    CompositeKernel composite => composite.FindKernelByName(node.ParentKernelName),
                     _ => _kernel
                 };
 
@@ -382,14 +389,16 @@ namespace Microsoft.DotNet.Interactive.Parsing
         {
             errorMessage = null;
             replacementTokens = null;
-            
+
             if (ContainsInvalidCharactersForValueReference(tokenToReplace.AsSpan()))
             {
                 // F# verbatim strings should not be replaced but it's hard to detect them because the quotes are also stripped away by the tokenizer, so we use slashes as a proxy to detect file paths
                 return false;
             }
 
-            if (KernelInvocationContext.Current?.Command is not SubmitCode)
+            var context = KernelInvocationContext.Current;
+
+            if (context is { Command: not SubmitCode })
             {
                 return false;
             }
@@ -403,7 +412,36 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
             if (targetKernelName is "input" or "password")
             {
-                var inputRequest = new RequestInput($"Please enter a value for field \"{valueName}\".", isPassword: targetKernelName == "password");
+                string typeHint = null;
+
+                if (targetKernelName == "password")
+                {
+                    typeHint = "password";
+                }
+                else if (context is { CurrentlyParsingDirectiveNode: { } currentDirectiveNode })
+                {
+                    // use the parser to infer a type hint based on the expected type of the argument at the position of the input token
+                    var replaceMe = "{2AB89A6C-88D9-4C53-8392-A3A4F902A1CA}";
+
+                    var fixedUpText = currentDirectiveNode
+                                      .Text
+                                      .Replace($"@{tokenToReplace}", replaceMe)
+                                      .Replace(" @", "");
+
+                    var parseResult = currentDirectiveNode.DirectiveParser.Parse(fixedUpText);
+
+                    var c = parseResult.CommandResult.Children.FirstOrDefault(c => c.Tokens.Any(t => t.Value == replaceMe));
+
+                    if (c is { Symbol: {} symbol })
+                    {
+                        typeHint = GetTypeHint(symbol);
+                    }
+                }
+
+                var inputRequest = new RequestInput(
+                    valueName: valueName,
+                    prompt: $"Please enter a value for field \"{valueName}\".",
+                    inputTypeHint: typeHint);
 
                 var result = _kernel.RootKernel.SendAsync(inputRequest).GetAwaiter().GetResult();
 
@@ -419,27 +457,43 @@ namespace Microsoft.DotNet.Interactive.Parsing
             }
             else
             {
-                var result = _kernel.RootKernel.SendAsync(new RequestValue(valueName, targetKernelName)).GetAwaiter().GetResult();
+                var result = _kernel.RootKernel.SendAsync(new RequestValue(valueName, mimeType: "application/json" , targetKernelName: targetKernelName)).GetAwaiter().GetResult();
 
                 var events = result.KernelEvents.ToEnumerable().ToArray();
                 var valueProduced = events.OfType<ValueProduced>().SingleOrDefault();
 
-                if (valueProduced is { } &&
-                    valueProduced.FormattedValue.MimeType == "application/json")
+                if (valueProduced is { })
                 {
-                    var stringValue = valueProduced.FormattedValue.Value;
+                    string interpolatedValue = null;
 
-                    var jsonDoc = JsonDocument.Parse(stringValue);
-
-                    object interpolatedValue = jsonDoc.RootElement.ValueKind switch
+                    if (valueProduced.Value is { } value)
                     {
-                        JsonValueKind.True => true,
-                        JsonValueKind.False => false,
-                        JsonValueKind.String => jsonDoc.Deserialize<string>(),
-                        JsonValueKind.Number => jsonDoc.Deserialize<double>(),
+                        interpolatedValue = value.ToString();
+                    }
+                    else if (valueProduced.FormattedValue.MimeType == "application/json")
+                    {
+                        var stringValue = valueProduced.FormattedValue.Value;
 
-                        _ => null
-                    };
+                        var jsonDoc = JsonDocument.Parse(stringValue);
+
+                        object jsonValue = jsonDoc.RootElement.ValueKind switch
+                        {
+                            JsonValueKind.True => true,
+                            JsonValueKind.False => false,
+                            JsonValueKind.String => jsonDoc.Deserialize<string>(),
+                            JsonValueKind.Number => jsonDoc.Deserialize<double>(),
+
+                            _ => null
+                        };
+
+                        interpolatedValue = jsonValue?.ToString();
+                    }
+                    else
+                    {
+                        errorMessage = events.OfType<CommandFailed>().Last().Message;
+
+                        return false;
+                    }
 
                     if (interpolatedValue is { })
                     {
@@ -448,14 +502,13 @@ namespace Microsoft.DotNet.Interactive.Parsing
                     }
                     else
                     {
-                        errorMessage = $"Value @{tokenToReplace} cannot be interpolated into magic command:\n{stringValue}";
+                        errorMessage = $"Value @{tokenToReplace} cannot be interpolated into magic command:\n{valueProduced.Value ?? valueProduced.FormattedValue.Value}";
                         return false;
                     }
                 }
                 else
                 {
                     errorMessage = events.OfType<CommandFailed>().Last().Message;
-
                     return false;
                 }
             }
@@ -474,6 +527,29 @@ namespace Microsoft.DotNet.Interactive.Parsing
 
                 return false;
             }
+        }
+
+        private string GetTypeHint(Symbol symbol)
+        {
+            string hint;
+
+            if (_customInputTypeHints is not null &&
+                symbol is IValueDescriptor descriptor &&
+                _customInputTypeHints.TryGetValue(descriptor.ValueType, out hint))
+            {
+                return hint;
+            }
+
+            hint = symbol switch
+            {
+                IValueDescriptor<DateTime> => "datetime-local",
+                IValueDescriptor<int> => "number",
+                IValueDescriptor<float> => "number",
+                IValueDescriptor<FileSystemInfo> => "file",
+                IValueDescriptor<Uri> => "url",
+                _ => null
+            };
+            return hint;
         }
 
         public void AddDirective(Command command)
@@ -512,10 +588,21 @@ namespace Microsoft.DotNet.Interactive.Parsing
             ResetParser();
         }
 
-        internal void ResetParser()
+        /// <summary>
+        /// Specifies the type hint to be used for a given destination type parsed as a magic command input type. 
+        /// </summary>
+        /// <remarks>Type hints are loosely based on the types used for HTML <c>input</c> elements. They allow what is ultimately a text input to be presented in a more specific way (e.g. a date or file picker) to a user according to the capabilities of a UI.</remarks>
+        public void SetInputTypeHint(Type expectedType, string inputTypeHint)
         {
-            _directiveParser = null;
+            if (_customInputTypeHints is null)
+            {
+                _customInputTypeHints = new();
+            }
+
+            _customInputTypeHints[expectedType] = inputTypeHint;
         }
+
+        internal void ResetParser() => _directiveParser = null;
 
         public static CompletionItem CompletionItemFor(string name, ParseResult parseResult)
         {

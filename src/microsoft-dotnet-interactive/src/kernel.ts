@@ -68,7 +68,7 @@ export class Kernel {
             supportedDirectives: [],
             supportedKernelCommands: []
         };
-        this.registerCommandHandler({
+        this._internalRegisterCommandHandler({
             commandType: contracts.RequestKernelInfoType, handle: async invocation => {
                 await this.handleRequestKernelInfo(invocation);
             }
@@ -131,9 +131,8 @@ export class Kernel {
         this.ensureCommandTokenAndId(commandEnvelope);
         tryAddUriToRoutingSlip(commandEnvelope, getKernelUri(this));
         commandEnvelope.routingSlip;//?
-        let context = KernelInvocationContext.establish(commandEnvelope);
-        this.getScheduler().runAsync(commandEnvelope, (value) => this.executeCommand(value));
-        return context.promise;
+        KernelInvocationContext.establish(commandEnvelope);
+        return this.getScheduler().runAsync(commandEnvelope, (value) => this.executeCommand(value));
     }
 
     private async executeCommand(commandEnvelope: contracts.KernelCommandEnvelope): Promise<void> {
@@ -243,6 +242,31 @@ export class Kernel {
         // When a registration already existed, we want to overwrite it because we want users to
         // be able to develop handlers iteratively, and it would be unhelpful for handler registration
         // for any particular command to be cumulative.
+
+        const shouldNotify = !this._commandHandlers.has(handler.commandType);
+        this._internalRegisterCommandHandler(handler);
+        if (shouldNotify) {
+            const event: contracts.KernelInfoProduced = {
+                kernelInfo: this._kernelInfo,
+            };
+            const envelope: contracts.KernelEventEnvelope = {
+                eventType: contracts.KernelInfoProducedType,
+                event: event
+            };
+            tryAddUriToRoutingSlip(envelope, getKernelUri(this));
+            const context = KernelInvocationContext.current;
+
+            if (context) {
+                envelope.command = context.commandEnvelope;
+
+                context.publish(envelope);
+            } else {
+                this.publishEvent(envelope);
+            }
+        }
+    }
+
+    private _internalRegisterCommandHandler(handler: IKernelCommandHandler): void {
         this._commandHandlers.set(handler.commandType, handler);
         this._kernelInfo.supportedKernelCommands = Array.from(this._commandHandlers.keys()).map(commandName => ({ name: commandName }));
     }

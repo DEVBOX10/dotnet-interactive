@@ -27,7 +27,7 @@ describe("kernelInfo", () => {
             expect(kernelInfos.length).to.equal(2);
             expect(kernelInfos).to.deep.equal([{
                 aliases: ['child1Js'],
-                languageName: 'Javascript',
+                languageName: 'JavaScript',
                 languageVersion: undefined,
                 localName: 'child1',
                 supportedDirectives: [],
@@ -35,11 +35,12 @@ describe("kernelInfo", () => {
                     [{ name: 'RequestKernelInfo' },
                     { name: 'SubmitCode' },
                     { name: 'RequestValueInfos' },
-                    { name: 'RequestValue' }]
+                    { name: 'RequestValue' },
+                    { name: 'SendValue' }]
             },
             {
                 aliases: ['child2Js'],
-                languageName: 'Javascript',
+                languageName: 'JavaScript',
                 languageVersion: undefined,
                 localName: 'child2',
                 supportedDirectives: [],
@@ -47,7 +48,8 @@ describe("kernelInfo", () => {
                     [{ name: 'RequestKernelInfo' },
                     { name: 'SubmitCode' },
                     { name: 'RequestValueInfos' },
-                    { name: 'RequestValue' }]
+                    { name: 'RequestValue' },
+                    { name: 'SendValue' }]
             }]);
         });
 
@@ -86,27 +88,127 @@ describe("kernelInfo", () => {
                     kernelInfo:
                     {
                         aliases: ['child1Js'],
-                        languageName: 'Javascript',
+                        languageName: 'JavaScript',
                         languageVersion: undefined,
                         localName: 'child1',
                         supportedDirectives: [],
                         supportedKernelCommands:
-                            [
-                                { name: 'RequestKernelInfo' },
-                                { name: 'SubmitCode' },
-                                { name: 'RequestValueInfos' },
-                                { name: 'RequestValue' }
-                            ]
+                            [{ name: 'RequestKernelInfo' },
+                            { name: 'SubmitCode' },
+                            { name: 'RequestValueInfos' },
+                            { name: 'RequestValue' },
+                            { name: 'SendValue' }]
                     }
                 },
                 eventType: 'KernelInfoProduced'
             }]);
         });
 
+        it("when a custom command is added during command execution it produces and updatedKernelInfoProduced event", async () => {
+            const events: contracts.KernelEventEnvelope[] = [];
+            const kernel = new CompositeKernel("root");
+            const childKernel = new Kernel("child1", "customLanguage");
+            childKernel.registerCommandHandler({
+                commandType: contracts.SubmitCodeType,
+                handle: (commandInvocation) => {
+                    childKernel.registerCommandHandler({
+                        commandType: "customCommand",
+                        handle: (commandInvocation) => {
+                            return Promise.resolve();
+                        }
+                    });
+                    return Promise.resolve();
+                }
+            });
+
+            kernel.add(childKernel);
+
+            kernel.kernelEvents.subscribe({
+                next: (event) => {
+                    events.push(<contracts.KernelEventEnvelope>clearTokenAndId(event));
+                }
+            });
+
+            await kernel.send({ commandType: contracts.SubmitCodeType, command: { targetKernelName: "child1" }, });
+            expect(events.filter(e => e.eventType === contracts.KernelInfoProducedType))
+                .to
+                .deep
+                .equal([{
+                    command:
+                    {
+                        command: { targetKernelName: 'child1' },
+                        commandType: 'SubmitCode',
+                        id: 'commandId',
+                        routingSlip: ['kernel://local/root', 'kernel://local/child1'],
+                        token: 'commandToken'
+                    },
+                    event:
+                    {
+                        kernelInfo:
+                        {
+                            aliases: [],
+                            languageName: 'customLanguage',
+                            languageVersion: undefined,
+                            localName: 'child1',
+                            supportedDirectives: [],
+                            supportedKernelCommands:
+                                [{ name: 'RequestKernelInfo' },
+                                { name: 'SubmitCode' },
+                                { name: 'customCommand' }]
+                        }
+                    },
+                    eventType: 'KernelInfoProduced',
+                    routingSlip: ['kernel://local/child1', 'kernel://local/root']
+                }]);
+
+        });
+
+        it("when a custom command is added it produces and updatedKernelInfoProduced event", async () => {
+            const events: contracts.KernelEventEnvelope[] = [];
+            const kernel = new CompositeKernel("root");
+            const childKernel = new Kernel("child1", "customLanguage");
+
+            kernel.add(childKernel);
+
+            kernel.kernelEvents.subscribe({
+                next: (event) => {
+                    events.push(<contracts.KernelEventEnvelope>clearTokenAndId(event));
+                }
+            });
+
+            childKernel.registerCommandHandler({
+                commandType: contracts.SubmitCodeType,
+                handle: (commandInvocation) => {
+                    return Promise.resolve();
+                }
+            });
+
+            expect(events.filter(e => e.eventType === contracts.KernelInfoProducedType))
+                .to
+                .deep
+                .equal([{
+                    event:
+                    {
+                        kernelInfo:
+                        {
+                            aliases: [],
+                            languageName: 'customLanguage',
+                            languageVersion: undefined,
+                            localName: 'child1',
+                            supportedDirectives: [],
+                            supportedKernelCommands: [{ name: 'RequestKernelInfo' }, { name: 'SubmitCode' }]
+                        }
+                    },
+                    eventType: 'KernelInfoProduced',
+                    routingSlip: ['kernel://local/child1', 'kernel://local/root']
+                }]);
+        });
+
         it("when commands adde a kernel it produces KernelInfoProduced events", async () => {
             const events: contracts.KernelEventEnvelope[] = [];
             const kernel = new CompositeKernel("root");
-            const childKernel = new Kernel("child1", "customLLanguage");
+            const childKernel = new Kernel("child1", "customLanguage");
+
             childKernel.registerCommandHandler({
                 commandType: contracts.SubmitCodeType,
                 handle: (commandInvocation) => {
@@ -188,7 +290,8 @@ describe("kernelInfo", () => {
                     { name: 'RequestKernelInfo' },
                     { name: 'SubmitCode' },
                     { name: 'RequestValueInfos' },
-                    { name: 'RequestValue' }
+                    { name: 'RequestValue' },
+                    { name: 'SendValue' }
                 ]);
         });
 
@@ -200,7 +303,7 @@ describe("kernelInfo", () => {
             await kernel.send({ commandType: contracts.RequestKernelInfoType, command: {} });
             sub.dispose();
             const kernelInfoProduced = <contracts.KernelInfoProduced>events.find(e => e.eventType === contracts.KernelInfoProducedType)?.event;
-            expect(kernelInfoProduced?.kernelInfo.languageName).to.equal("Javascript");
+            expect(kernelInfoProduced?.kernelInfo.languageName).to.equal("JavaScript");
 
         });
 
@@ -231,6 +334,7 @@ describe("kernelInfo", () => {
                 { name: 'SubmitCode' },
                 { name: 'RequestValueInfos' },
                 { name: 'RequestValue' },
+                { name: 'SendValue' },
                 { name: 'TestCommand1' },
                 { name: 'TestCommand2' },
                 { name: 'TestCommand3' }]);

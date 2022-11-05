@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reactive.Linq;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -12,6 +13,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.DotNet.Interactive.Commands;
+using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.ValueSharing;
@@ -54,7 +56,7 @@ namespace Microsoft.DotNet.Interactive.Http
         {
             if (context.HttpContext.Request.Method == HttpMethods.Get)
             {
-                SingleVariableRequest(context);
+                await SingleVariableRequest(context);
             }
             else if (context.HttpContext.Request.Method == HttpMethods.Post)
             {
@@ -94,13 +96,12 @@ namespace Microsoft.DotNet.Interactive.Http
                         return;
                     }
                     
-                    if (targetKernel.SupportsCommandType(typeof(RequestValue)) || targetKernel is ISupportGetValue)
+                    if (targetKernel.KernelInfo.SupportedKernelCommands.Any(c =>c.Name == nameof(RequestValue)))
                     {
                         foreach (var variableName in kernelProperty.Value.EnumerateArray().Select(v => v.GetString()))
                         {
-                            var value = TryGetValue(targetKernel, variableName);
-
-                            if (value is {} )
+                            var value = await GetValueAsync(targetKernel, variableName);
+                            if (value is {})
                             {
                                 propertyBag[variableName] = JsonDocument.Parse(value.Value).RootElement;
                             }
@@ -142,22 +143,19 @@ namespace Microsoft.DotNet.Interactive.Http
             }
         }
 
-        private FormattedValue TryGetValue(Kernel targetKernel, string variableName)
+        private async Task<FormattedValue> GetValueAsync(Kernel targetKernel, string variableName)
         {
-            if (targetKernel is ISupportGetValue fromInProcessKernel)
-            {
-                if (fromInProcessKernel.TryGetValue(variableName, out object value))
-                {
-                    return new FormattedValue(JsonFormatter.MimeType, value.ToDisplayString(JsonFormatter.MimeType));
-                }
+            var result = await targetKernel.SendAsync(new RequestValue(variableName));
 
-                return null;
+            if (await result.KernelEvents.FirstOrDefaultAsync() is ValueProduced { Value: { } value })
+            {
+                return new FormattedValue(JsonFormatter.MimeType, value.ToDisplayString(JsonFormatter.MimeType));
             }
-            
+
             return null;
         }
 
-        private void SingleVariableRequest(RouteContext context)
+        private async Task SingleVariableRequest(RouteContext context)
         {
             var segments =
                 context.HttpContext
@@ -172,17 +170,17 @@ namespace Microsoft.DotNet.Interactive.Http
                 var variableName = segments[2];
 
                 var targetKernel = GetKernel(kernelName);
-
-                if (targetKernel is ISupportGetValue languageKernel)
+                if (targetKernel?.SupportsCommandType(typeof(RequestValue)) == true)
                 {
-                    if (languageKernel.TryGetValue(variableName, out object value))
+                    var value = await GetValueAsync(targetKernel, variableName);
+                    if (value is { })
                     {
                         context.Handler = async httpContext =>
                         {
                             await using (var writer = new StreamWriter(httpContext.Response.Body))
                             {
                                 httpContext.Response.ContentType = JsonFormatter.MimeType;
-                                await writer.WriteAsync(value.ToDisplayString(JsonFormatter.MimeType));
+                                await writer.WriteAsync(value.Value);
                             }
 
                             await httpContext.Response.CompleteAsync();
@@ -192,17 +190,6 @@ namespace Microsoft.DotNet.Interactive.Http
             }
         }
 
-        private Kernel GetKernel(string kernelName)
-        {
-            Kernel targetKernel = null;
-            if (_kernel.Name != kernelName)
-            {
-                if (_kernel is CompositeKernel composite)
-                {
-                    targetKernel = composite.ChildKernels.FirstOrDefault(k => k.Name == kernelName);
-                }
-            }
-            return targetKernel;
-        }
+        private Kernel GetKernel(string kernelName) => _kernel.FindKernelByName(kernelName);
     }
 }

@@ -16,7 +16,6 @@ using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Tests.Utility;
-using Microsoft.DotNet.Interactive.ValueSharing;
 using Pocket.For.Xunit;
 using Xunit;
 using Xunit.Abstractions;
@@ -58,7 +57,7 @@ namespace Microsoft.DotNet.Interactive.Tests
 
             await SubmitCode(kernel, source);
 
-            var result = await kernel.SendAsync(new RequestValue(valueName, language.LanguageName(), mimeType));
+            var result = await kernel.SendAsync(new RequestValue(valueName, mimeType: mimeType, targetKernelName: language.LanguageName()));
             var kernelEvents = result.KernelEvents.ToSubscribedList();
 
             kernelEvents
@@ -1208,133 +1207,6 @@ System.Threading.Thread.Sleep(1000);
                 .Command
                 .Should()
                 .Be(command);
-        }
-
-        [Theory]
-        [InlineData(Language.CSharp)]
-        [InlineData(Language.FSharp)]
-        [InlineData(Language.PowerShell)]
-        public async Task TryGetVariable_returns_defined_variable(Language language)
-        {
-            var codeToSetVariable = language switch
-            {
-                Language.CSharp => "var x = 123;",
-                Language.FSharp => "let x = 123",
-                Language.PowerShell => "$x = 123"
-            };
-
-            var kernel = CreateKernel(language);
-
-            await kernel.SubmitCodeAsync(codeToSetVariable);
-
-            var languageKernel = kernel.ChildKernels.OfType<ISupportGetValue>().Single();
-
-            var succeeded = languageKernel.TryGetValue("x", out int x);
-
-            using var _ = new AssertionScope();
-
-            succeeded.Should().BeTrue();
-            x.Should().Be(123);
-        }
-
-        [Theory]
-        [InlineData(Language.CSharp)]
-        [InlineData(Language.FSharp)]
-        [InlineData(Language.PowerShell)]
-        public async Task GetVariableNames_returns_the_names_of_defined_variables(Language language)
-        {
-            var codeToSetVariable = language switch
-            {
-                Language.CSharp => "var x = 123;",
-                Language.FSharp => "let x = 123",
-                Language.PowerShell => "$x = 123"
-            };
-
-            var kernel = CreateKernel(language);
-
-            await kernel.SubmitCodeAsync(codeToSetVariable);
-
-            var languageKernel = kernel.ChildKernels.OfType<ISupportGetValue>().Single();
-
-            languageKernel.GetValueInfos().Should().Contain(v => v.Name == "x");
-        }
-
-        [Theory]
-        [InlineData(Language.CSharp)]
-        [InlineData(Language.FSharp)]
-        [InlineData(Language.PowerShell)]
-        public async Task SetValueAsync_declares_the_specified_variable(Language language)
-        {
-            var kernel = CreateKernel(language);
-
-            var languageKernel = kernel.ChildKernels.OfType<ISupportSetClrValue>().Single();
-
-            await languageKernel.SetValueAsync("x", 123);
-
-            var succeeded = ((ISupportGetValue)languageKernel).TryGetValue("x", out int x);
-
-            using var _ = new AssertionScope();
-
-            succeeded.Should().BeTrue();
-            x.Should().Be(123);
-        }
-
-        [Theory]
-        [InlineData(Language.CSharp)]
-        [InlineData(Language.FSharp)]
-        [InlineData(Language.PowerShell)]
-        public async Task SetValueAsync_overwrites_an_existing_variable_of_the_same_type(Language language)
-        {
-            var kernel = CreateKernel(language);
-
-            var languageKernel = kernel.ChildKernels.OfType<ISupportSetClrValue>().Single();
-
-            await languageKernel.SetValueAsync("x", 123);
-            await languageKernel.SetValueAsync("x", 456);
-
-            var succeeded = ((ISupportGetValue)languageKernel).TryGetValue("x", out int x);
-
-            using var _ = new AssertionScope();
-
-            succeeded.Should().BeTrue();
-            x.Should().Be(456);
-        }
-
-        [Theory]
-        [InlineData(Language.CSharp)]
-        [InlineData(Language.FSharp)]
-        [InlineData(Language.PowerShell)]
-        public async Task SetValueAsync_can_redeclare_an_existing_variable_and_change_its_type(Language language)
-        {
-            var kernel = CreateKernel(language);
-
-            var languageKernel = kernel.ChildKernels.OfType<ISupportSetClrValue>().Single();
-
-            await languageKernel.SetValueAsync("x", 123);
-            await languageKernel.SetValueAsync("x", "hello");
-
-            var succeeded = ((ISupportGetValue)languageKernel).TryGetValue("x", out string x);
-
-            using var _ = new AssertionScope();
-
-            succeeded.Should().BeTrue();
-            x.Should().Be("hello");
-        }
-
-        [Fact]
-        public async Task FSharp_can_set_an_array_value_with_SetValueAsync()
-        {
-            var kernel = CreateKernel(Language.FSharp);
-            var languageKernel = kernel.ChildKernels.OfType<ISupportSetClrValue>().Single();
-
-            await languageKernel.SetValueAsync("x", new int[] { 42 });
-
-            var succeeded = ((ISupportGetValue)languageKernel).TryGetValue("x", out int[] x);
-
-            using var _ = new AssertionScope();
-
-            succeeded.Should().BeTrue();
-            x.Should().BeEquivalentTo(new int[] { 42 });
         }
     }
 }

@@ -37,11 +37,11 @@ namespace Microsoft.DotNet.Interactive
         {
             EnsureMiddlewarePipelineIsInitialized();
 
-            command.RoutingSlip.TryAdd(_kernel.GetKernelUri());
+            command.TryAddToRoutingSlip(_kernel.GetKernelUri());
             
             try
             {
-                await _pipeline(command, context, (_, __) => Task.CompletedTask);
+                await _pipeline(command, context, (_, _) => Task.CompletedTask);
             }
             catch (Exception exception)
             {

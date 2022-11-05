@@ -1,4 +1,4 @@
-﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
+// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
@@ -13,14 +13,13 @@ using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.Formatting.Csv;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.Tests.Utility;
-using Microsoft.DotNet.Interactive.ValueSharing;
 using Xunit;
 
 namespace Microsoft.DotNet.Interactive.Kql.Tests
 {
     public class KqlConnectionTests : IDisposable
     {
-        private static async Task<CompositeKernel> CreateKernel()
+        private static async Task<CompositeKernel> CreateKernelAsync()
         {
             Formatter.SetPreferredMimeTypesFor(typeof(TabularDataResource), HtmlFormatter.MimeType, CsvFormatter.MimeType);
             var csharpKernel = new CSharpKernel().UseNugetDirective();
@@ -44,7 +43,7 @@ namespace Microsoft.DotNet.Interactive.Kql.Tests
         public async Task It_can_connect_and_query_data()
         {
             var cluster = KqlFactAttribute.GetClusterForTests();
-            using var kernel = await CreateKernel();
+            using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
                 $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
 
@@ -71,35 +70,39 @@ StormEvents | take 10
                     e.FormattedValues.Any(f => f.MimeType == HtmlFormatter.MimeType));
         }
 
-
         [KqlFact]
         public async Task It_can_store_result_set_with_a_name()
         {
             var cluster = KqlFactAttribute.GetClusterForTests();
-            using var kernel = await CreateKernel();
+            using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
-                $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
+                             $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
 
             result.KernelEvents
-                .ToSubscribedList()
-                .Should()
-                .NotContainErrors();
+                  .ToSubscribedList()
+                  .Should()
+                  .NotContainErrors();
 
             result = await kernel.SubmitCodeAsync(@"
 #!kql-KustoHelp --name my_data_result
 StormEvents | take 10
             ");
 
-            var kqlKernel = kernel.FindKernel("kql-KustoHelp") as ISupportGetValue;
-            kqlKernel.TryGetValue("my_data_result", out object variable).Should().BeTrue();
-            variable.Should().BeAssignableTo<IEnumerable<TabularDataResource>>();
+            var kqlKernel = kernel.FindKernelByName("kql-KustoHelp");
+
+            result = await kqlKernel.SendAsync(new RequestValue("my_data_result"));
+
+            var events = result.KernelEvents.ToSubscribedList();
+
+            events.Should().ContainSingle<ValueProduced>()
+                  .Which.Value.Should().BeAssignableTo<IEnumerable<TabularDataResource>>();
         }
 
         [KqlFact]
         public async Task sending_query_to_kusto_will_generate_suggestions()
         {
             var cluster = KqlFactAttribute.GetClusterForTests();
-            using var kernel = await CreateKernel();
+            using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
                 $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
 
@@ -133,7 +136,7 @@ StormEvents | take 10
         public async Task Field_types_are_deserialized_correctly()
         {
             var cluster = KqlFactAttribute.GetClusterForTests();
-            using var kernel = await CreateKernel();
+            using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
                 $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
 
@@ -164,7 +167,7 @@ StormEvents | take 10
         public async Task query_produces_expected_formatted_values()
         {
             var cluster = KqlFactAttribute.GetClusterForTests();
-            using var kernel = await CreateKernel();
+            using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
                 $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
 
@@ -194,7 +197,7 @@ StormEvents | take 10
         public async Task Empty_results_are_displayed_correctly()
         {
             var cluster = KqlFactAttribute.GetClusterForTests();
-            using var kernel = await CreateKernel();
+            using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
                 $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
 
@@ -239,7 +242,7 @@ StormEvents | take 0
         public async Task Shared_variable_can_be_used_to_parameterize_a_kql_query(string csharpVariableDeclaration, object expectedValue)
         {
             var cluster = KqlFactAttribute.GetClusterForTests();
-            using var kernel = await CreateKernel();
+            using var kernel = await CreateKernelAsync();
             var result = await kernel.SubmitCodeAsync(
                 $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");
 
@@ -278,7 +281,7 @@ print testVar";
         public async Task Invalid_shared_variables_are_handled_correctly(string csharpVariableDeclaration)
         {
             var cluster = KqlFactAttribute.GetClusterForTests();
-            using var kernel = await CreateKernel();
+            using var kernel = await CreateKernelAsync();
 
             var result = await kernel.SubmitCodeAsync(
                 $"#!connect kql --kernel-name KustoHelp --cluster \"{cluster}\" --database \"Samples\"");

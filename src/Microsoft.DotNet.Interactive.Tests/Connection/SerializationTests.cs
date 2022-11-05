@@ -44,12 +44,19 @@ namespace Microsoft.DotNet.Interactive.Tests.Connection
 
             var deserializedEnvelope = KernelCommandEnvelope.Deserialize(json);
 
+            // ignore these specific properties because they're not serialized
+            var ignoredProperties = new HashSet<string>
+            {
+                $"{nameof(SendValue)}.{nameof(SendValue.Value)}",
+            };
+
             deserializedEnvelope
                 .Should()
                 .BeEquivalentToRespectingRuntimeTypes(
                     originalEnvelope,
                     o => o.Excluding(e => e.Command.Properties)
-                          .Excluding(e => e.Command.Handler));
+                          .Excluding(e => e.Command.Handler)
+                          .Excluding(info => ignoredProperties.Contains($"{info.DeclaringType.Name}.{info.Name}")));
         }
 
         [Theory]
@@ -79,8 +86,7 @@ namespace Microsoft.DotNet.Interactive.Tests.Connection
                 .BeEquivalentToRespectingRuntimeTypes(
                     originalEnvelope,
                     o => o.Excluding(envelope => envelope.Event.Command.Properties)
-                        .Excluding(info => ignoredProperties.Contains($"{info.DeclaringType.Name}.{info.Name}"))
-                    );
+                          .Excluding(info => ignoredProperties.Contains($"{info.DeclaringType.Name}.{info.Name}")));
         }
 
         [Theory]
@@ -150,7 +156,7 @@ namespace Microsoft.DotNet.Interactive.Tests.Connection
             foreach (var command in commands().Select(c =>
             {
                 c.Properties["id"] = "command-id";
-                c.RoutingSlip.TryAdd(new Uri("kernel://somelocation/kernelName", UriKind.Absolute));
+                c.TryAddToRoutingSlip(new Uri("kernel://somelocation/kernelName", UriKind.Absolute));
                 return c;
             }))
             {
@@ -196,25 +202,31 @@ namespace Microsoft.DotNet.Interactive.Tests.Connection
 
                 yield return new RequestValueInfos("csharp");
 
-                yield return new RequestValue("a", "csharp", HtmlFormatter.MimeType);
+                yield return new RequestValue("a", mimeType: HtmlFormatter.MimeType, targetKernelName: "csharp");
 
-                yield return new RequestInput(prompt:"provide answer", isPassword: true, targetKernelName: "vscode");
+                yield return new RequestInput(prompt: "provide answer", valueName: "yourPassword", inputTypeHint: "password", targetKernelName: "vscode");
+
+                yield return new SendValue(
+                    "name",
+                    "formatted value",
+                    new FormattedValue("text/plain", "formatted value"),
+                    targetKernelName: "fsharp");
             }
         }
 
         public static IEnumerable<object[]> Events()
         {
             foreach (var @event in events().Select(e =>
-            {
-                e.Command.Properties["id"] = "command-id";
-                if (e is not KernelReady)
-                {
-                    e.Command.RoutingSlip.TryAdd(new Uri("kernel://somelocation/kernelName"));
-                }
+                     {
+                         e.Command.Properties["id"] = "command-id";
+                         if (e is not KernelReady)
+                         {
+                             e.Command.TryAddToRoutingSlip(new Uri("kernel://somelocation/kernelName"));
+                         }
                
-                e.RoutingSlip.TryAdd(new Uri("kernel://somelocation/kernelName"));
-                return e;
-            }))
+                         e.TryAddToRoutingSlip(new Uri("kernel://somelocation/kernelName"));
+                         return e;
+                     }))
             {
                 yield return new object[] { @event };
             }
@@ -354,7 +366,7 @@ namespace Microsoft.DotNet.Interactive.Tests.Connection
                     submitCode,
                     new[]
                     {
-                        new FormattedValue("text/plain", "oops!"),
+                        new FormattedValue("text/plain", "oops!")
                     });
 
                 yield return new StandardOutputValueProduced(
@@ -370,13 +382,24 @@ namespace Microsoft.DotNet.Interactive.Tests.Connection
 
                 yield return new KernelExtensionLoaded(new SubmitCode(@"#r ""nuget:package"" "));
 
-                yield return new ValueInfosProduced(new[] { new KernelValueInfo("a", typeof(string)), new KernelValueInfo("b", typeof(string)), new KernelValueInfo("c", typeof(string)) }, new RequestValueInfos("csharp"));
+                yield return new ValueInfosProduced(new[]
+                {
+                    new KernelValueInfo("a", typeof(string)),
+                    new KernelValueInfo("b", typeof(string)),
+                    new KernelValueInfo("c", typeof(string))
+                }, new RequestValueInfos("csharp"));
 
-                yield return new ValueProduced("raw value", "a", new FormattedValue(HtmlFormatter.MimeType, "<span>formatted value</span>"), new RequestValue("a", "csharp", HtmlFormatter.MimeType));
+                yield return new ValueProduced(
+                    "raw value",
+                    "a",
+                    new FormattedValue(
+                        HtmlFormatter.MimeType,
+                        "<span>raw value</span>"),
+                    new RequestValue("a", mimeType: HtmlFormatter.MimeType, targetKernelName: "csharp"));
 
-                yield return new CommandCancelled( new Cancel() ,new SubmitCode("var value = 1;", "csharp"));
+                yield return new CommandCancelled(new Cancel(), new SubmitCode("var value = 1;", "csharp"));
 
-                yield return new InputProduced("user input", new RequestInput("Input?", targetKernelName: "vscode"));
+                yield return new InputProduced("user input", new RequestInput(valueName: "logfile", prompt: "What is the path to the log file?", inputTypeHint: "file", targetKernelName: "vscode"));
             }
         }
 

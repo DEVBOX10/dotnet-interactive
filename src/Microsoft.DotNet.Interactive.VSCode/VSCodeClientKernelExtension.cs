@@ -3,9 +3,11 @@
 
 using System;
 using System.Threading.Tasks;
+using System.Xml.Linq;
+
 using Microsoft.DotNet.Interactive.Commands;
+using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.PowerShell;
-using Microsoft.DotNet.Interactive.ValueSharing;
 
 namespace Microsoft.DotNet.Interactive.VSCode;
 
@@ -17,7 +19,7 @@ public class VSCodeClientKernelExtension : IKernelExtension
         {
             var hostKernel = await root.Host.ConnectProxyKernelOnDefaultConnectorAsync(
                 "vscode",
-                new Uri("kernel://vscode/vscode"),
+                new Uri("kernel://vscode"),
                 new[] { "frontend" });
             hostKernel.KernelInfo.SupportedKernelCommands.Add(new(nameof(RequestInput)));
             root.SetDefaultTargetKernelNameForCommand(typeof(RequestInput), "vscode");
@@ -30,7 +32,9 @@ public class VSCodeClientKernelExtension : IKernelExtension
             jsKernel.KernelInfo.SupportedKernelCommands.Add(new(nameof(SubmitCode)));
             jsKernel.KernelInfo.SupportedKernelCommands.Add(new(nameof(RequestValue)));
             jsKernel.KernelInfo.SupportedKernelCommands.Add(new(nameof(RequestValueInfos)));
-            jsKernel.UseValueSharing(new JavaScriptValueDeclarer());
+            jsKernel.KernelInfo.SupportedKernelCommands.Add(new(nameof(SendValue)));
+
+            jsKernel.UseValueSharing();
 
             root.VisitSubkernels(subkernel =>
             {

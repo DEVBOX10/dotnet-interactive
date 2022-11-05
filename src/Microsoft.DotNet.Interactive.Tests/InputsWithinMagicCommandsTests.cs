@@ -3,6 +3,7 @@
 
 using System;
 using System.CommandLine;
+using System.IO;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.DotNet.Interactive.Commands;
@@ -17,6 +18,7 @@ public class InputsWithinMagicCommandsTests : IDisposable
     private readonly CompositeKernel kernel;
     private RequestInput _receivedRequestInput = null;
     private string _receivedUserInput = null;
+    private readonly Command _shimCommand;
 
     public InputsWithinMagicCommandsTests()
     {
@@ -31,14 +33,17 @@ public class InputsWithinMagicCommandsTests : IDisposable
 
         kernel.SetDefaultTargetKernelNameForCommand(typeof(RequestInput), kernel.Name);
 
-        var argument = new Argument<string>();
-        Command shim = new("#!shim")
+        var stringOption = new Option<string>("--string");
+        _shimCommand = new("#!shim")
         {
-            argument
+            stringOption
         };
-        shim.SetHandler((string value) => { _receivedUserInput = value; }, argument);
+        _shimCommand.SetHandler(context =>
+        {
+            _receivedUserInput = context.ParseResult.GetValueForOption(stringOption);
+        });
 
-        kernel.FindKernel("csharp").AddDirective(shim);
+        kernel.FindKernelByName("csharp").AddDirective(_shimCommand);
     }
 
     public void Dispose()
@@ -49,7 +54,7 @@ public class InputsWithinMagicCommandsTests : IDisposable
     [Fact]
     public async Task Input_token_in_magic_command_prompts_user_for_input()
     {
-        await kernel.SendAsync(new SubmitCode("#!shim @input:input-please", "csharp"));
+        await kernel.SendAsync(new SubmitCode("#!shim --string @input:input-please", "csharp"));
 
         _receivedRequestInput.IsPassword.Should().BeFalse();
 
@@ -63,9 +68,25 @@ public class InputsWithinMagicCommandsTests : IDisposable
     }
 
     [Fact]
+    public async Task Input_token_in_magic_command_includes_requested_value_name()
+    {
+        await kernel.SendAsync(new SubmitCode("#!shim --string @input:input-please", "csharp"));
+
+        _receivedRequestInput.IsPassword.Should().BeFalse();
+
+        _receivedRequestInput
+            .Should()
+            .BeOfType<RequestInput>()
+            .Which
+            .ValueName
+            .Should()
+            .Be("input-please");
+    }
+
+    [Fact]
     public async Task Input_token_in_magic_command_prompts_user_passes_user_input_to_directive__to_handler()
     {
-        await kernel.SendAsync(new SubmitCode("#!shim @input:input-please", "csharp"));
+        await kernel.SendAsync(new SubmitCode("#!shim --string @input:input-please", "csharp"));
 
         _receivedUserInput.Should().Be("hello!");
     }
@@ -73,7 +94,7 @@ public class InputsWithinMagicCommandsTests : IDisposable
     [Fact]
     public async Task Input_token_in_magic_command_prompts_user_for_password()
     {
-        await kernel.SendAsync(new SubmitCode("#!shim @password:input-please", "csharp"));
+        await kernel.SendAsync(new SubmitCode("#!shim --string @password:input-please", "csharp"));
 
         _receivedRequestInput.IsPassword.Should().BeTrue();
 
@@ -84,6 +105,26 @@ public class InputsWithinMagicCommandsTests : IDisposable
             .Prompt
             .Should()
             .Be("Please enter a value for field \"input-please\".");
+    }
+
+    [Fact]
+    public async Task An_input_type_hint_is_set_for_file_inputs()
+    {
+        _shimCommand.Add(new Option<FileInfo>("--file"));
+
+        await kernel.SendAsync(new SubmitCode("#!shim --file @input:file-please\n// some more stuff", "csharp"));
+
+        _receivedRequestInput.InputTypeHint.Should().Be("file");
+    }
+
+    [Fact]
+    public async Task Unknown_types_return_type_hint_of_text()
+    {
+        _shimCommand.Add(new Option<CompositeKernel>("--unknown"));
+
+        await kernel.SendAsync(new SubmitCode("#!shim --file @input:file-please\n// some more stuff", "csharp"));
+
+        _receivedRequestInput.InputTypeHint.Should().Be("text");
     }
 
     private static CompositeKernel CreateKernel() =>

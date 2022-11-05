@@ -6,6 +6,7 @@ import * as contracts from "./contracts";
 import { getKernelUri, IKernelCommandInvocation, Kernel, KernelType } from "./kernel";
 import { KernelHost } from "./kernelHost";
 import { KernelInvocationContext } from "./kernelInvocationContext";
+import { Logger } from "./logger";
 
 export class CompositeKernel extends Kernel {
     private _host: KernelHost | null = null;
@@ -100,6 +101,40 @@ export class CompositeKernel extends Kernel {
         }
     }
 
+    findKernelByUri(uri: string): Kernel | undefined {
+        if (this.kernelInfo.uri === uri) {
+            return this;
+        }
+        return this._childKernels.tryGetByUri(uri);
+    }
+
+    findKernelByName(name: string): Kernel | undefined {
+        if (this.kernelInfo.localName === name || this.kernelInfo.aliases.find(a => a === name)) {
+            return this;
+        }
+        return this._childKernels.tryGetByAlias(name);
+    }
+
+    findKernels(predicate: (kernel: Kernel) => boolean): Kernel[] {
+        var results: Kernel[] = [];
+        if (predicate(this)) {
+            results.push(this);
+        }
+        for (let kernel of this.childKernels) {
+            if (predicate(kernel)) {
+                results.push(kernel);
+            }
+        }
+        return results;
+    }
+
+    findKernel(predicate: (kernel: Kernel) => boolean): Kernel | undefined {
+        if (predicate(this)) {
+            return this;
+        }
+        return this.childKernels.find(predicate);
+    }
+
     setDefaultTargetKernelNameForCommand(commandType: contracts.KernelCommandType, kernelName: string) {
         this._defaultKernelNamesByCommandType.set(commandType, kernelName);
     }
@@ -149,6 +184,7 @@ export class CompositeKernel extends Kernel {
                 return kernel;
             }
         }
+
         let targetKernelName = commandEnvelope.command.targetKernelName;
 
         if (targetKernelName === undefined || targetKernelName === null) {
@@ -163,7 +199,14 @@ export class CompositeKernel extends Kernel {
             kernel = this._childKernels.tryGetByAlias(targetKernelName) ?? null;
         }
 
+        if (targetKernelName && !kernel) {
+            const errorMessage = `Kernel not found: ${targetKernelName}`;
+            Logger.default.error(errorMessage);
+            throw new Error(errorMessage);
+        }
+
         if (!kernel) {
+
             if (this._childKernels.count === 1) {
                 kernel = this._childKernels.single() ?? null;
             }
@@ -208,6 +251,9 @@ class KernelCollection implements Iterable<Kernel> {
 
 
     public add(kernel: Kernel, aliases?: string[]): void {
+        if (this._kernelsByNameOrAlias.has(kernel.name)) {
+            throw new Error(`kernel with name ${kernel.name} already exists`);
+        }
         this.updateKernelInfoAndIndex(kernel, aliases);
         this._kernels.push(kernel);
     }
@@ -218,6 +264,15 @@ class KernelCollection implements Iterable<Kernel> {
     }
 
     updateKernelInfoAndIndex(kernel: Kernel, aliases?: string[]): void {
+
+        if (aliases) {
+            for (let alias of aliases) {
+                if (this._kernelsByNameOrAlias.has(alias)) {
+                    throw new Error(`kernel with alias ${alias} already exists`);
+                }
+            }
+        }
+
         if (!this._nameAndAliasesByKernel.has(kernel)) {
 
             let set = new Set<string>();

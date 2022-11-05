@@ -1,14 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>preview</LangVersion>
   </PropertyGroup>
 
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageDescription>Convention-based and highly configurable .NET object formatting for interactive programming, including support for mime types suitable for building visualizations for Jupyter Notebooks and web browsers.</PackageDescription>
-    <PackageTags>interactive formatting Jupyter mime</PackageTags>
+    <PackageTags>polyglot notebook dotnet interactive formatting Jupyter mime</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

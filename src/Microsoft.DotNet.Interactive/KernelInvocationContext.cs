@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
+using Microsoft.DotNet.Interactive.Parsing;
 using Microsoft.DotNet.Interactive.Utility;
 using Pocket;
 using CompositeDisposable = Pocket.CompositeDisposable;
@@ -19,6 +20,8 @@ namespace Microsoft.DotNet.Interactive
 {
     public class KernelInvocationContext : IDisposable
     {
+        private bool _isFailed;
+        
         private static readonly AsyncLocal<KernelInvocationContext> _current = new();
 
         private readonly ReplaySubject<KernelEvent> _events = new();
@@ -30,7 +33,7 @@ namespace Microsoft.DotNet.Interactive
         private List<Action<KernelInvocationContext>> _onCompleteActions;
 
         private readonly CancellationTokenSource _cancellationTokenSource;
-        
+
         private KernelInvocationContext(KernelCommand command)
         {
             var operation = new OperationLogger(
@@ -62,32 +65,21 @@ namespace Microsoft.DotNet.Interactive
                     c.Error.Subscribe(s => this.DisplayStandardError(s, command))
                 };
             }));
-        
+
             _disposables.Add(operation);
         }
 
         public KernelCommand Command { get; }
 
         public bool IsComplete { get; private set; }
-
-        public CancellationToken CancellationToken
-        {
-            get
-            {
-                if (_cancellationTokenSource.IsCancellationRequested)
-                {
-                    return new CancellationToken(true);
-                }
-                else
-                {
-                    return _cancellationTokenSource.Token;
-                }
-            }
-        }
+        
+        public CancellationToken CancellationToken => _cancellationTokenSource.IsCancellationRequested
+                                                          ? new CancellationToken(true) 
+                                                          : _cancellationTokenSource.Token;
 
         public void Complete(KernelCommand command)
         {
-            SucceedOrFail(true, command);
+            SucceedOrFail(!_isFailed, command);
         }
 
         public void Fail(
@@ -126,7 +118,7 @@ namespace Microsoft.DotNet.Interactive
 
                 var completingMainCommand = CommandEqualityComparer.Instance.Equals(command, Command);
                 
-                if (succeed)
+                if (succeed && !_isFailed)
                 {
                     if (completingMainCommand)
                     {
@@ -145,23 +137,33 @@ namespace Microsoft.DotNet.Interactive
                 }
                 else
                 {
-                    if (!completingMainCommand && command.ShouldPublishCompletionEvent == true)
-                    {
-                        Publish(new CommandFailed(exception, command, message));
-
-                        StopPublishingChildCommandEvents();
-                    }
-                    else
+                    if (completingMainCommand || command.ShouldPublishCompletionEvent != true)
                     {
                         Publish(new CommandFailed(exception, Command, message));
 
                         StopPublishingMainCommandEvents();
 
                         TryCancel();
+
+                        _isFailed = true;
+                    }
+                    else
+                    {
+                        if (command.Parent is null)
+                        {
+                            Publish(new ErrorProduced(message, command), publishOnAmbientContextOnly: true);
+                        }
+
+                        Publish(new CommandFailed(exception, command, message));
+
+                        StopPublishingChildCommandEvents();
                     }
                 }
 
-                IsComplete = completingMainCommand;
+                if (completingMainCommand)
+                {
+                    IsComplete = true;
+                }
             }
 
             void StopPublishingMainCommandEvents()
@@ -204,6 +206,11 @@ namespace Microsoft.DotNet.Interactive
 
         public void Publish(KernelEvent @event)
         {
+            Publish(@event, false);
+        }
+
+        public void Publish(KernelEvent @event, bool publishOnAmbientContextOnly)
+        {
             if (IsComplete)
             {
                 return;
@@ -213,10 +220,10 @@ namespace Microsoft.DotNet.Interactive
 
             if (HandlingKernel is { })
             {
-                @event.RoutingSlip.TryAdd(HandlingKernel.GetKernelUri());
+                @event.TryAddToRoutingSlip(HandlingKernel.GetKernelUri());
             }
-            
-            if (_childCommands.TryGetValue(command, out var events))
+
+            if (!publishOnAmbientContextOnly && _childCommands.TryGetValue(command, out var events))
             {
                 events.OnNext(@event);
             }
@@ -260,18 +267,23 @@ namespace Microsoft.DotNet.Interactive
             {
                 if (!CommandEqualityComparer.Instance.Equals(_current.Value.Command, command))
                 {
-                    if (command.Parent is null)
-                    {
-                        command.Parent = _current.Value.Command;
-                    }
-
-                    _current.Value._childCommands.GetOrAdd(command, _ =>
+                    var capturedEventStream = _current.Value._events;
+                    _current.Value._childCommands.GetOrAdd(command, innerCommand =>
                     {
                         var replaySubject = new ReplaySubject<KernelEvent>();
 
                         var subscription = replaySubject
-                                           .Where(e => e is not CommandSucceeded and not CommandFailed)
-                                           .Subscribe(e => _current.Value._events.OnNext(e));
+                                           .Where(e =>
+                                            {
+                                                if (innerCommand.OriginUri is { })
+                                                {
+                                                    // if executing on behalf of a proxy, don't swallow anything
+                                                    return true;
+                                                }
+
+                                                return e is not CommandSucceeded and not CommandFailed;
+                                            })
+                                           .Subscribe(e => capturedEventStream.OnNext(e));
 
                         _current.Value._disposables.Add(subscription);
                         _current.Value._disposables.Add(replaySubject);
@@ -315,6 +327,8 @@ namespace Microsoft.DotNet.Interactive
             Complete(Command);
             TryCancel();
         }
+
+        internal DirectiveNode CurrentlyParsingDirectiveNode { get; set; }
 
         public Task ScheduleAsync(Func<KernelInvocationContext, Task> func) =>
             HandlingKernel.SendAsync(new AnonymousKernelCommand((_, invocationContext) =>

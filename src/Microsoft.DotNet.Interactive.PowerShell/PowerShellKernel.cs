@@ -28,10 +28,11 @@ namespace Microsoft.DotNet.Interactive.PowerShell
 
     public class PowerShellKernel :
         Kernel,
-        ISupportGetValue,
-        ISupportSetClrValue,
         IKernelCommandHandler<RequestCompletions>,
         IKernelCommandHandler<RequestDiagnostics>,
+        IKernelCommandHandler<RequestValueInfos>,
+        IKernelCommandHandler<RequestValue>,
+        IKernelCommandHandler<SendValue>,
         IKernelCommandHandler<SubmitCode>
     {
         private const string PSTelemetryEnvName = "POWERSHELL_DISTRIBUTION_CHANNEL";
@@ -57,7 +58,7 @@ namespace Microsoft.DotNet.Interactive.PowerShell
 
         internal int DefaultRunspaceId => _lazyPwsh.IsValueCreated ? pwsh.Runspace.Id : -1;
 
-        private HashSet<string> _suppressedValueInfoNames;
+        private readonly HashSet<string> _suppressedValueInfoNames;
 
         static PowerShellKernel()
         {
@@ -171,13 +172,41 @@ namespace Microsoft.DotNet.Interactive.PowerShell
             return false;
         }
 
-        public Task SetValueAsync(string name, object value, Type declaredType)
+        Task IKernelCommandHandler<RequestValueInfos>.HandleAsync(RequestValueInfos command, KernelInvocationContext context)
         {
-            _lazyPwsh.Value.Runspace.SessionStateProxy.PSVariable.Set(name, value);
+            var valueInfos = GetValueInfos();
+            context.Publish(new ValueInfosProduced(valueInfos, command));
             return Task.CompletedTask;
         }
 
-        public async Task HandleAsync(
+        Task IKernelCommandHandler<RequestValue>.HandleAsync(RequestValue command, KernelInvocationContext context)
+        {
+            if (TryGetValue<object>(command.Name, out var value))
+            {
+                context.PublishValueProduced(command, value);
+            }
+            else
+            {
+                context.Fail(command, message: $"Value '{command.Name}' not found in kernel {Name}");
+            }
+
+            return Task.CompletedTask;
+        }
+
+        async Task IKernelCommandHandler<SendValue>.HandleAsync(
+            SendValue command,
+            KernelInvocationContext context)
+        {
+            await SetValueAsync(command, context, SetAsync);
+
+            Task SetAsync(string name, object value, Type declaredType)
+            {
+                _lazyPwsh.Value.Runspace.SessionStateProxy.PSVariable.Set(name, value);
+                return Task.CompletedTask;
+            }
+        }
+
+        async Task IKernelCommandHandler<SubmitCode>.HandleAsync(
             SubmitCode submitCode,
             KernelInvocationContext context)
         {
@@ -236,7 +265,7 @@ namespace Microsoft.DotNet.Interactive.PowerShell
             }
         }
 
-        public Task HandleAsync(
+        Task IKernelCommandHandler<RequestCompletions>.HandleAsync(
             RequestCompletions requestCompletions,
             KernelInvocationContext context)
         {
@@ -273,7 +302,7 @@ namespace Microsoft.DotNet.Interactive.PowerShell
             return Task.CompletedTask;
         }
 
-        public Task HandleAsync(
+        Task IKernelCommandHandler<RequestDiagnostics>.HandleAsync(
             RequestDiagnostics requestDiagnostics,
             KernelInvocationContext context)
         {

@@ -23,6 +23,7 @@ export const RequestSignatureHelpType = "RequestSignatureHelp";
 export const RequestValueType = "RequestValue";
 export const RequestValueInfosType = "RequestValueInfos";
 export const SendEditableCodeType = "SendEditableCode";
+export const SendValueType = "SendValue";
 export const SubmitCodeType = "SubmitCode";
 export const UpdateDisplayedValueType = "UpdateDisplayedValue";
 
@@ -45,6 +46,7 @@ export type KernelCommandType =
     | typeof RequestValueType
     | typeof RequestValueInfosType
     | typeof SendEditableCodeType
+    | typeof SendValueType
     | typeof SubmitCodeType
     | typeof UpdateDisplayedValueType;
 
@@ -107,6 +109,8 @@ export interface RequestHoverText extends LanguageServiceCommand {
 export interface RequestInput extends KernelCommand {
     prompt: string;
     isPassword: boolean;
+    inputTypeHint: string;
+    valueName: string;
 }
 
 export interface RequestKernelInfo extends KernelCommand {
@@ -126,6 +130,11 @@ export interface RequestValueInfos extends KernelCommand {
 export interface SendEditableCode extends KernelCommand {
     language: string;
     code: string;
+}
+
+export interface SendValue extends KernelCommand {
+    formattedValue: FormattedValue;
+    name: string;
 }
 
 export interface SubmitCode extends KernelCommand {
@@ -441,7 +450,7 @@ export interface InteractiveDocument {
 
 export interface InteractiveDocumentElement {
     id?: string;
-    language?: string;
+    kernelName?: string;
     contents: string;
     outputs: Array<InteractiveDocumentOutputElement>;
     executionOrder: number;
@@ -469,6 +478,7 @@ export interface KernelDirectiveInfo {
 
 export interface KernelValueInfo {
     name: string;
+    preferredMimeTypes: Array<string>;
 }
 
 export interface PackageReference {

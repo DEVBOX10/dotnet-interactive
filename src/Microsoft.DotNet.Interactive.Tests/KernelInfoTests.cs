@@ -101,7 +101,7 @@ public class KernelInfoTests
             using var remoteCompositeKernel = new CompositeKernel("REMOTE")
             {
                 proxiedCsharpKernel,
-                new FakeKernel("fsharp")
+                new FakeKernel("fsharp", languageName: "fsharp")
             };
 
             ConnectHost.ConnectInProcessHost(
@@ -117,7 +117,7 @@ public class KernelInfoTests
                     remoteKernelUri);
 
             var result = await localCompositeKernel.SendAsync(
-                new RequestKernelInfo(remoteKernelUri));
+                new RequestKernelInfo(targetKernelName: "proxied-fsharp"));
 
             var events = result.KernelEvents.ToSubscribedList();
 
@@ -125,6 +125,54 @@ public class KernelInfoTests
                 .ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "proxied-fsharp")
                 .Which
                 .KernelInfo
+                .Should()
+                .BeEquivalentTo(new
+                {
+                    LanguageName = "fsharp",
+                    RemoteUri = remoteKernelUri
+                }, c => c.ExcludingMissingMembers());
+        }
+
+        [Fact]
+        public async Task proxyKernel_kernelInfo_is_updated_to_reflect_remote_kernelInfo_on_first_command_sent_to_remote()
+        {
+            using var localCompositeKernel = new CompositeKernel("LOCAL")
+            {
+                new FakeKernel("fsharp")
+            };
+            var proxiedCsharpKernel = new CSharpKernel();
+            using var remoteCompositeKernel = new CompositeKernel("REMOTE")
+            {
+                proxiedCsharpKernel,
+                new FakeKernel("fsharp", languageName: "fsharp")
+            };
+
+            ConnectHost.ConnectInProcessHost(
+                localCompositeKernel,
+                remoteCompositeKernel);
+
+            var remoteKernelUri = new Uri("kernel://remote/fsharp");
+
+            await localCompositeKernel
+                .Host
+                .ConnectProxyKernelOnDefaultConnectorAsync(
+                    "proxied-fsharp",
+                    remoteKernelUri);
+
+            var proxyKernel = localCompositeKernel.FindKernelByName("proxied-fsharp");
+
+            proxyKernel.KernelInfo
+                .Should()
+                .BeEquivalentTo(new
+                {
+                    LanguageName = (string)null,
+                    RemoteUri = remoteKernelUri
+                }, c => c.ExcludingMissingMembers());
+
+            await localCompositeKernel.SendAsync(
+                new SubmitCode("let x = 1",targetKernelName: "proxied-fsharp"));
+
+            proxyKernel.KernelInfo
                 .Should()
                 .BeEquivalentTo(new
                 {

@@ -3,11 +3,11 @@
 
 import { CompositeKernel } from "../compositeKernel";
 import { JavascriptKernel } from "../javascriptKernel";
-import { Kernel } from "../kernel";
 import { LogEntry, Logger } from "../logger";
 import { KernelHost } from "../kernelHost";
 import * as rxjs from "rxjs";
 import * as connection from "../connection";
+import * as contracts from "../contracts";
 
 export function createHost(
     global: any,
@@ -22,22 +22,33 @@ export function createHost(
     global.interactive = {};
     configureRequire(global.interactive);
 
-    global.kernel = {
-        get root() {
-            return Kernel.root;
-        }
-    };
-
     const compositeKernel = new CompositeKernel(compositeKernelName);
     const kernelHost = new KernelHost(compositeKernel, connection.KernelCommandAndEventSender.FromObserver(localToRemote), connection.KernelCommandAndEventReceiver.FromObservable(remoteToLocal), `kernel://${compositeKernelName}`);
 
-    const jsKernel = new JavascriptKernel();
-    compositeKernel.add(jsKernel, ["js"]);
+    kernelHost.defaultConnector.receiver.subscribe({
+        next: (envelope) => {
+            if (connection.isKernelEventEnvelope(envelope) && envelope.eventType === contracts.KernelInfoProducedType) {
+                const kernelInfoProduced = <contracts.KernelInfoProduced>envelope.event;
+                connection.ensureOrUpdateProxyForKernelInfo(kernelInfoProduced, compositeKernel);
+            }
+        }
+    });
+
+    // use composite kernel as root
+
+    global.kernel = {
+        get root() {
+            return compositeKernel;
+        }
+    };
 
     global[compositeKernelName] = {
         compositeKernel,
         kernelHost,
     };
+
+    const jsKernel = new JavascriptKernel();
+    compositeKernel.add(jsKernel, ["js"]);
 
     kernelHost.connect();
 

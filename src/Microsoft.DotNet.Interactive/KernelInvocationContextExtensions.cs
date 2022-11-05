@@ -3,6 +3,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Events;
@@ -96,6 +98,31 @@ namespace Microsoft.DotNet.Interactive
                 new StandardErrorValueProduced(
                     command ?? context.Command,
                     formattedValues));
+        }
+
+        public static void PublishValueProduced(
+            this KernelInvocationContext context, 
+            RequestValue requestValue, 
+            object value)
+        {
+            var valueType = value?.GetType();
+
+            var requestedMimeType = requestValue.MimeType;
+
+            var formatter = Formatter.GetPreferredFormatterFor(valueType, requestedMimeType);
+
+            using var writer = new StringWriter(CultureInfo.InvariantCulture);
+            formatter.Format(value, writer);
+
+            var formatted = new FormattedValue(
+                requestedMimeType, 
+                writer.ToString());
+
+            context.Publish(new ValueProduced(
+                                value,
+                                requestValue.Name,
+                                formatted, 
+                                requestValue));
         }
     }
 }

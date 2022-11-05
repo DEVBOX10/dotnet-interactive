@@ -17,10 +17,6 @@ export function isStableBuild(): boolean {
     return !isInsidersBuild();
 }
 
-export function isAzureDataStudio(context: vscode.ExtensionContext): boolean {
-    return context.extension.packageJSON?.azureDataStudioMode;
-}
-
 function convertToPosition(linePosition: LinePosition): vscode.Position {
     return new vscode.Position(linePosition.line, linePosition.character);
 }
@@ -85,7 +81,7 @@ export function toNotebookDocument(document: vscode.NotebookDocument): Interacti
 export function toInteractiveDocumentElement(cell: vscode.NotebookCell): InteractiveDocumentElement {
     return {
         executionOrder: cell.executionSummary?.executionOrder ?? 0,
-        language: cell.kind === vscode.NotebookCellKind.Code
+        kernelName: cell.kind === vscode.NotebookCellKind.Code
             ? getSimpleLanguage(cell.document.languageId)
             : 'markdown',
         contents: cell.document.getText(),

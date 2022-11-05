@@ -2,7 +2,6 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
-using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
@@ -214,8 +213,9 @@ public static class CommandLineParser
             async Task<int> JupyterHandler(StartupOptions startupOptions, JupyterOptions options, IConsole console, InvocationContext context, CancellationToken cancellationToken)
             {
                 var frontendEnvironment = new HtmlNotebookFrontendEnvironment();
-                var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions);
-
+                var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions, telemetrySender);
+                cancellationToken.Register(() => kernel.Dispose());
+                
                 await new JupyterClientKernelExtension().OnLoadAsync(kernel);
 
                 services.AddKernel(kernel);
@@ -232,7 +232,9 @@ public static class CommandLineParser
                     .AddSingleton(c => new JupyterRequestContextHandler(kernel))
                     .AddSingleton<IHostedService, Shell>()
                     .AddSingleton<IHostedService, Heartbeat>();
+
                 var result = await jupyter(startupOptions, console, startServer, context);
+                
                 return result;
             }
 
@@ -298,8 +300,8 @@ public static class CommandLineParser
                 workingDirOption
             };
 
-            stdIOCommand.Handler = CommandHandler.Create<StartupOptions, StdIOOptions, IConsole, InvocationContext>(
-                async (startupOptions, options, console, context) =>
+            stdIOCommand.Handler = CommandHandler.Create<StartupOptions, StdIOOptions, IConsole, InvocationContext,CancellationToken>(
+                async (startupOptions, options, console, context, cancellationToken) =>
                 {
                     Console.InputEncoding = Encoding.UTF8;
                     Console.OutputEncoding = Encoding.UTF8;
@@ -312,12 +314,15 @@ public static class CommandLineParser
                     var kernel = CreateKernel(
                         options.DefaultKernel, 
                         frontendEnvironment, 
-                        startupOptions);
-
+                        startupOptions,
+                        telemetrySender);
+                    
                     services.AddKernel(kernel);
 
                     kernel.UseQuitCommand();
-
+                    
+                    cancellationToken.Register(() => kernel.Dispose());
+                    
                     var sender = KernelCommandAndEventSender.FromTextWriter(
                         Console.Out,
                         KernelHost.CreateHostUri("stdio"));
@@ -351,7 +356,7 @@ public static class CommandLineParser
                         else
                         {
                             kernel.Add(
-                                new JavaScriptKernel(clientSideKernelClient),
+                                new JavaScriptKernel(clientSideKernelClient).UseValueSharing(),
                                 new[] { "js" });
                         }
 
@@ -359,7 +364,6 @@ public static class CommandLineParser
                         {
                             var _ = host.ConnectAsync();
                         };
-
                         await startHttp(startupOptions, console, startServer, context);
                     }
                     else
@@ -370,7 +374,6 @@ public static class CommandLineParser
 
                             proxy.KernelInfo.SupportedKernelCommands.Add(new(nameof(SubmitCode)));
                         }
-
                         await startKernelHost(startupOptions, host, console);
                     }
 
@@ -431,10 +434,7 @@ public static class CommandLineParser
         }
     }
 
-    private static CompositeKernel CreateKernel(
-        string defaultKernelName,
-        FrontendEnvironment frontendEnvironment,
-        StartupOptions startupOptions)
+    private static CompositeKernel CreateKernel(string defaultKernelName, FrontendEnvironment frontendEnvironment, StartupOptions startupOptions, TelemetrySender telemetrySender)
     {
         using var _ = Log.OnEnterAndExit("Creating Kernels");
 
@@ -483,7 +483,8 @@ public static class CommandLineParser
         var kernel = compositeKernel
             .UseDefaultMagicCommands()
             .UseLogMagicCommand()
-            .UseAboutMagicCommand();
+            .UseAboutMagicCommand()
+            .UseImportMagicCommand();
 
         kernel.AddKernelConnector(new ConnectNamedPipeCommand());
         kernel.AddKernelConnector(new ConnectSignalRCommand());
@@ -497,6 +498,8 @@ public static class CommandLineParser
         SetUpFormatters(frontendEnvironment);
 
         kernel.DefaultKernelName = defaultKernelName;
+
+        kernel.UseTelemetrySender(telemetrySender);
 
         return kernel;
     }
