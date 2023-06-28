@@ -11,8 +11,9 @@ public class MermaidKernel : Kernel,
 {
     private ChooseMermaidKernelDirective? _chooseKernelDirective;
 
-    public MermaidKernel() : base("mermaid", languageName:"Mermaid")
+    public MermaidKernel() : base("mermaid")
     {
+        KernelInfo.LanguageName = "Mermaid";
     }
 
     Task IKernelCommandHandler<SubmitCode>.HandleAsync(SubmitCode command, KernelInvocationContext context)
@@ -34,7 +35,7 @@ public class MermaidKernel : Kernel,
             Background = string.IsNullOrWhiteSpace(background) ? "white" : background
         };
 
-        var formattedValues = FormattedValue.FromObject(markdown);
+        var formattedValues = FormattedValue.CreateManyFromObject(markdown);
         
         context.Publish(
             new DisplayedValueProduced(

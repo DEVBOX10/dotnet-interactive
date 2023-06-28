@@ -1,115 +1,188 @@
-# Using HTML and JavaScript with .NET Interactive
+# Using JavaScript in Polyglot Notebooks
 
-Creating visualizations for data is one of the key features of notebooks. In both Visual Studio Code and Jupyter, the frontend can render HTML, and there are numerous libraries available for .NET and Python the help create plots and visualizations. It's common in such libraries that you can write code that executes in the kernel, and the library handles the transformation into HTML and JavaScript for you. With .NET Interactive, there are some APIs available to simplify the process of directly writing your HTML and JavaScript. This enables you to create custom visualizations and directly access the broader ecosysytem of JavaScript libraries without needing wrapper libraries. You may choose to use these APIs directly or use them to create custom extensions to enrich the visualization of .NET types.
+JavaScript is one of the languages supported by default in Polyglot Notebooks. JavaScript is widely used for visualization in notebooks since the most popular notebook technologies are browser-based. While many libraries are available in languages such as Python for plotting and visualization, these are usually wrappers around JavaScript libraries. For this reason, inclusion of JavaScript and the ability to share data easily from other languages makes it an appealing option to write visualization code in JavaScript directly.
 
-In this section, we'll take a look at:
+## Declaring variables
 
-* Emitting HTML
-* Emitting JavaScript
-* Accessing kernel data from client-side JavaScript code
+The recommended way to declare JavaScript variables in a notebook differs from the way it's usually done elsewhere.
 
-## Emitting HTML
+_**TL;DR**_ Declare your JavaScript variables without using a keyword such as `let`, `const`, or `var`, like this:
 
-The simplest way to write some HTML to the client in .NET Interactive is to use the `#!html` magic command:
+```javascript
+x = 123;
+```
 
-<img src="https://user-images.githubusercontent.com/547415/82240545-7245bc80-98ef-11ea-9686-7e9722ec0754.png" width="60%">
+So why is this recommended?
 
-Another way to write out HTML is to display or return a value of type `IHtmlContent`, which is used to signal that a `string` should not be HTML-encoded but rather treated as valid HTML:
+As with other languages that weren't designed for interactive programming, using JavaScript in a notebook has a few special quirks. The difference that people most frequently encounter has to do with how to declare variables.
 
-<img src="https://user-images.githubusercontent.com/547415/82240791-df595200-98ef-11ea-86ff-830627bb565d.png" width="60%">
+In JavaScript, variables can be declared in a number of ways, including `let`, `var`, and `const`, as well as without a keyword.
 
-The `HTML` helper method is available for wrapping a string into an `IHtmlContent` instance, which will accomplish the same thing:
+```javascript
+let declaredWithLet = 1;
+var declaredWithVar = 2;
+const declaredWithConst = 3;
+declaredWithoutKeyword = 4;
+```
 
-<img src="https://user-images.githubusercontent.com/547415/82270446-b655b300-9929-11ea-860f-2cc80a1c20bc.png" width="60%">
+Since JavaScript variables are function-scoped, the three keyword-based approaches above will declare variables that can't be referenced outside of the function where they were declared. But the fourth example, declared without a keyword, will work. The following code shows this behavior:
 
-A fourth approach, if you'd like to avoid thinking about string escaping and HTML encoding, and you're writing your code in C#, is to use the `PocketView` API:
+```javascript
+const doSomething = async () => {
+    let declaredWithLet = 1;
+    var declaredWithVar = 2;
+    const declaredWithConst = 3;
+    declaredWithoutKeyword = 4;
+}
 
-<img src="https://user-images.githubusercontent.com/547415/82241257-a8377080-98f0-11ea-92e7-c6329db2d707.png" width="60%">
+await doSomething();
 
-`PocketView` is a C# domain-specific language for writing HTML. You can learn more about it [here](pocketview.md).
+try { console.log(declaredWithLet); }          catch (e) { console.log(e.toString()); }
+try { console.log(declaredWithVar); }          catch (e) { console.log(e.toString()); }
+try { console.log(declaredWithConst); }        catch (e) { console.log(e.toString()); }
+try { console.log(declaredWithoutKeyword); }   catch (e) { console.log(e.toString()); }
+```
 
-## Emitting JavaScript
+This code produces the following output: 
 
-Just like you can directly write HTML using a magic command, you can also scripts that will be run on the frontend. The simplest approach is again a magic command, either `#!javascript` or `#!js`:
+```console
+ReferenceError: declaredWithLet is not defined
+ReferenceError: declaredWithVar is not defined
+ReferenceError: declaredWithConst is not defined
+4
+```
 
-<img src="https://user-images.githubusercontent.com/547415/82244383-00bd3c80-98f6-11ea-8778-80d933a901c6.png" width="60%">
+So why does the fourth example work? By not using the `let`, `const`, or `var` keywords with your variable declaration, you're enabling JavaScript variable hoisting to add the variable to the top-level scope. When running in a browser (including the notebook webview), this means the variable will be added to `window`. For this reason, the final line of the above example is equivalent to the following:
 
-## Accessing kernel data from client-side JavaScript code
+```javascript
+console.log(window.declaredWithoutKeyword);
+```
 
-Most of the interesting work in your notebook is probably happening in the kernel, not in the client, so .NET Interactive gives you a way to access the data from the kernel. Any top-level variables declared in a kernel can be accessed from JavaScript running in the client using the `interactive` object. 
+What does this have to do with Polyglot Notebooks?
 
-Here's an example:
+The Polyglot Notebooks JavaScript kernel executes your code submissions within an async arrow function, just like the above example:
 
-<img src="https://user-images.githubusercontent.com/547415/82252142-4d5b4480-9903-11ea-8224-e044027085b6.png" width="60%">
+```javascript
+const doSomething = async () => {
+    // Your code here
+}
 
-The `interactive` object contains the following properties, corresponding to the default `dotnet-interactive` subkernels:
+await doSomething();
+```
 
-* `interactive.csharp`
-* `interactive.fsharp`
-* `interactive.pwsh`
-* `interactive.value`
+This means that the JavaScript code in each cell is isolated from the others by the same function scoping mechanism. The only way to make variables declared in one cell visible in others is to allow them to be hoisted to the `window` scope, by avoiding the use of the `let`, `var`, and `const` keywords.
 
-## Loading external JavaScript modules at runtime
+## Return values
 
-Sometimes you might need to import JavaScript modules into your notebook. You can use the `interactive` object to do so.
+In C# Script, F#, Python, and a number of other languages, the following is equivalent to a `return` statement:
 
-Here is an example that configures RequireJS to load [D3.js](https://d3js.org/) from a CDN. `configureRequire` returns a function that can be used to load the module.
+```csharp
+123
+```
 
-```js
-#!js
-dtreeRequire = interactive.configureRequire({
+This is sometimes called a trailing expression and is a feature of many languages. However, it is not supported in JavaScript. If you would like to return a value from a JavaScript cell, you need to write this:
+
+```javascript
+return 123;
+```
+
+## Loading dependencies
+
+The first step to using a library is to load it into your notebook session. A couple of approaches are supported today.
+
+### Using `import`
+
+If the library you'd like to use is an ES module, you can import it using the `import` function. In the following example, [D3.js](https://d3js.org/) is loaded using `import` and stored in a variable called `d3`. 
+
+```javascript
+d3 = await import("https://cdn.jsdelivr.net/npm/d3@7/+esm");
+```
+
+Note that using `let`, `const`, or `var` here would prevent the variable from being hoisted into the global scope, which would prevent it from being visible to JavaScript code in other cells.
+
+You can see a notebook with a working example [here](../samples/notebooks/javascript/D3.js%20with%20import.ipynb).
+
+### Using RequireJS
+
+You can also use [RequireJS](https://requirejs.org/) to load dependencies. If the library you'd like to use isn't available as an ES module, this can be a good alternative.
+
+In this example, we're configuring RequireJS to load the [D3.js](https://d3js.org/) library from a CDN.
+
+```javascript
+configuredRequire = (require.config({
     paths: {
-        d3: "https://d3js.org/d3.v5.min"
-    }
+        d3: 'https://cdn.jsdelivr.net/npm/d3@7.4.4/dist/d3.min'
+    },
+}) || require);
+```
+
+Afterwards, we can use the `configuredRequire` function to call the D3.js API.
+
+```javascript
+configuredRequire(['d3'], d3 => {
+    // Call d3 here.
 });
 ```
 
-You can require the module by invoking `dtreeRequire`. Then, you can use `#!html` to inject an `svg` element and then `#!js` to load and call the `d3.v5.min.js` library.
+When the module you want to load has its own dependencies, you can load them as well. Here's an example that loads [Plotly](https://plotly.com/javascript/) along with its dependencies, [jQuery](https://jquery.com/) and [D3.js](https://d3js.org/).
 
-
-```
-#!html
-<svg id="renderTarget" width=300 height=300></svg>
-
-#!js
-dtreeRequire(["d3"], d3 => {
-    d3.select("svg#renderTarget")
-    .append('circle')
-    .attr('cx', 100)
-    .attr('cy', 100)
-    .attr('r', 50)
-    .attr('stroke', 'black')
-    .attr('fill', '#69a3b2');    
-});
-```
-
-The `interactive.configureRequire` is equivalent to [`require.config`](https://www.tutorialspoint.com/requirejs/requirejs_quick_guide.htm).
-
-Doing this in .NET Interactive:
-
-```js
-#!js
-dtreeRequire = interactive.configureRequire({
+```javascript
+configuredRequire = (require.config({
     paths: {
-        d3: "https://d3js.org/d3.v5.min"
-    }
-});
+        d3: 'https://cdn.jsdelivr.net/npm/d3@7.4.4/dist/d3.min',
+        jquery: 'https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min',
+        plotly: 'https://cdn.plot.ly/plotly-2.14.0.min'
+    },
 
-dtreeRequire(["d3"], d3 => { 
-    console.log(d3);
-});
+    shim: {
+        plotly: {
+            deps: ['d3', 'jquery'],
+            exports: 'plotly'
+        }
+    }
+}) || require);
 ```
 
-is equivalent to doing this with RequireJS:
+If you'd like to try it out, there's a notebook with a working example using [here](../samples/notebooks/javascript/Plotly%20with%20RequireJS.ipynb).
 
-```js
-requirejs.config({
-    paths: {
-        d3: "https://d3js.org/d3.v5.min"
-    }
-});
+## Sharing data
 
-require(["d3"], d3 => { 
-    console.log(d3);
-});
+Many polyglot notebook workflows use languages such as C#, F#, and SQL to gather and prepare data. Like other .NET Interactive subkernels, the JavaScript kernel allows you to share variables, so you can use JavaScript to plot and visualize your data. Variable sharing in JavaScript works similarly to other languages, using the `#!share` magic command. Here's a simple example, declaring an array variable in C# and then accessing it from JavaScript:
+
+```csharp
+var array = new[] { 1, 2, 3 };
 ```
+
+```javascript
+#!share --from csharp array
+
+return array;
+```
+
+When you run this code in Polyglot Notebooks, you can see that the `array` variable has been copied to the JavaScript kernel.
+
+<img width="509" alt="image" src="https://user-images.githubusercontent.com/547415/211658845-ac8563ec-accc-462d-bf24-23bef205a0c7.png">
+
+You can also share back in the other direction. Let's modify the JavaScript array and share it back to C#.
+
+```javascript
+array.push(4);
+```
+
+```csharp
+#!share --from javascript array
+
+array
+```
+
+When you run this code, you can see that the original C# variable gets overwritten. 
+
+<img width="503" alt="image" src="https://user-images.githubusercontent.com/547415/211661641-057e29fc-8048-4910-983f-14d8380dca8b.png">
+
+One notable detail here is that the type of the new C# variable has changed from the original declaration. It was originally declared as `int[]`, but after sharing the array back from JavaScript, the C# kernel has a variable called `array` which is of type `JsonDocument`. Because the JavaScript kernel runs in a different process from the .NET subkernels, sharing happens via JSON serialization. Complex types shared from JavaScript to .NET are sent as JSON and deserialized using `System.Text.Json`. There are a few simple types that will be shared as their intuitive .NET counterparts. 
+
+* JavaScript numbers are shared as `System.Decimal`
+* JavaScript strings are shared as `System.String`
+* JavaScript booleans are shared as `System.Boolean`
+
+You can read more about variable sharing [here](variable-sharing.md).

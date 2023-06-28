@@ -2,313 +2,420 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-
 using Pocket;
 
-namespace Microsoft.DotNet.Interactive
+namespace Microsoft.DotNet.Interactive;
+
+public class KernelScheduler<T, TResult> : IDisposable, IKernelScheduler<T, TResult>
 {
-    public class KernelScheduler<T, TResult> : IDisposable, IKernelScheduler<T, TResult>
+    private static readonly Logger Log = new("KernelScheduler");
+
+    private readonly CompositeDisposable _disposables;
+    private readonly List<DeferredOperationSource> _deferredOperationSources = new();
+    private readonly CancellationTokenSource _schedulerDisposalSource = new();
+    private readonly Task _runLoopTask;
+
+    private readonly BlockingCollection<ScheduledOperation> _topLevelScheduledOperations = new();
+    private ScheduledOperation _currentlyRunningOperation;
+    private readonly Barrier _childOperationsBarrier = new(1);
+
+    public KernelScheduler()
     {
-        private readonly Func<T, T, bool> _isInnerSchedule;
-        private static readonly Logger Log = new("KernelScheduler");
+        _runLoopTask = Task.Factory.StartNew(
+            ScheduledOperationRunLoop,
+            TaskCreationOptions.LongRunning,
+            _schedulerDisposalSource.Token);
 
-        private readonly CompositeDisposable _disposables;
-        private readonly List<DeferredOperationSource> _deferredOperationSources = new();
-        private readonly CancellationTokenSource _schedulerDisposalSource = new();
-        private readonly Task _runLoopTask;
-        private T _currentTopLevelOperation = default;
-
-        private readonly BlockingCollection<ScheduledOperation> _topLevelScheduledOperations = new();
-        private ScheduledOperation _currentlyRunningOperation;
-
-        public KernelScheduler(Func<T, T, bool> isInnerSchedule = null)
+        _disposables = new CompositeDisposable
         {
-            // FIX: (KernelScheduler) replace this with something more explicit
-            _isInnerSchedule = isInnerSchedule ?? IsInnerScheduleDefault;
+            _schedulerDisposalSource.Cancel,
+            _schedulerDisposalSource,
+            _topLevelScheduledOperations,
+        };
+    }
+
+    public void CancelCurrentOperation()
+    {
+        if (_currentlyRunningOperation is { } operation)
+        {
+            operation.TaskCompletionSource.TrySetCanceled(_schedulerDisposalSource.Token);
+            _currentlyRunningOperation = null;
+        }
+    }
+
+    public Task<TResult> RunAsync(
+        T value,
+        KernelSchedulerDelegate<T, TResult> onExecuteAsync,
+        string scope = "default",
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        ScheduledOperation operation;
+
+        if (_currentlyRunningOperation is { } currentlyRunningOperation &&
+            IsChildOperation(currentlyRunningOperation.Value, value))
+        {
+            operation = new ScheduledOperation(
+                value,
+                onExecuteAsync,
+                isDeferred: false,
+                currentlyRunningOperation,
+                executionContext: null,
+                scope,
+                cancellationToken);
+            currentlyRunningOperation.AddChild(operation);
+            RunChildOperation(operation);
+        }
+        else
+        {
+            operation = new ScheduledOperation(
+                value,
+                onExecuteAsync,
+                isDeferred: false,
+                parentOperation: null,
+                ExecutionContext.Capture(),
+                scope: scope,
+                cancellationToken: cancellationToken);
+            EnqueueTopLevelOperation(operation);
+        }
+
+        return operation.TaskCompletionSource.Task;
+    }
+
+    internal async Task IdleAsync()
+    {
+        if (_currentlyRunningOperation is {} currentlyRunning && 
+            !currentlyRunning.TaskCompletionSource.Task.IsCompleted)
+        {
+            await currentlyRunning.TaskCompletionSource.Task;
+        }
+        
+        _childOperationsBarrier.SignalAndWait();
+    }
+
+    private void ScheduledOperationRunLoop(object _)
+    {
+        foreach (var operation in _topLevelScheduledOperations.GetConsumingEnumerable(_schedulerDisposalSource.Token))
+        {
+            _currentlyRunningOperation = operation;
+
+            var executionContext = operation.ExecutionContext;
             
-            _runLoopTask = Task.Factory.StartNew(
-                ScheduledOperationRunLoop,
-                TaskCreationOptions.LongRunning,
-                _schedulerDisposalSource.Token);
-
-            _disposables = new CompositeDisposable
-            {
-                _topLevelScheduledOperations,
-                () => _schedulerDisposalSource.Cancel()
-            };
-        }
-
-        private bool IsInnerScheduleDefault(T one, T two)
-        {
-            return false;
-        }
-
-        public void CancelCurrentOperation(Action<T> onCancellation = null)
-        {
-            if (_currentlyRunningOperation is { } operation)
-            {
-                onCancellation?.Invoke(operation.Value);
-                operation.TaskCompletionSource.TrySetCanceled(_schedulerDisposalSource.Token);
-                _currentlyRunningOperation = null;
-            }
-        }
-
-        public Task<TResult> RunAsync(
-            T value,
-            KernelSchedulerDelegate<T, TResult> onExecuteAsync,
-            string scope = "default",
-            CancellationToken cancellationToken = default)
-        {
-            ThrowIfDisposed();
-            
-            ScheduledOperation operation;
-            if (_isInnerSchedule(_currentTopLevelOperation, value))
-            {
-                operation = new ScheduledOperation(
-                    value,
-                    onExecuteAsync,
-                    isDeferred: false,
-                    executionContext: null,
-                    scope,
-                    cancellationToken);
-                RunPreemptively(operation);
-            }
-            else
-            {
-                operation = new ScheduledOperation(
-                    value,
-                    onExecuteAsync,
-                    isDeferred: false,
-                    ExecutionContext.Capture(),
-                    scope: scope,
-                    cancellationToken: cancellationToken);
-                RunAfterOtherWork(cancellationToken, operation);
-            }
-
-            return operation.TaskCompletionSource.Task;
-        }
-
-        private void ScheduledOperationRunLoop(object _)
-        {
-            foreach (var operation in _topLevelScheduledOperations.GetConsumingEnumerable(_schedulerDisposalSource.Token))
-            {
-                _currentTopLevelOperation = operation.Value;
-
-                var executionContext = operation.ExecutionContext;
-
-                if (executionContext is null)
-                {
-                    Log.Warning($"{nameof(operation.ExecutionContext)} was null for operation {operation}");
-                    executionContext = ExecutionContext.Capture();
-                }
-
-                _currentlyRunningOperation = operation;
-
-                try
-                {
-                    ExecutionContext.Run(
-                        executionContext!,
-                        _ => RunPreemptively(operation),
-                        operation);
-
-                    operation.TaskCompletionSource.Task.Wait(_schedulerDisposalSource.Token);
-                }
-                catch (Exception e)
-                {
-                    Log.Error("while executing {operation}", e, operation);
-                }
-                finally
-                {
-                    _currentTopLevelOperation = default;
-                    _currentlyRunningOperation = null;
-                }
-            }
-        }
-
-        private void Run(ScheduledOperation operation)
-        {
-            _currentTopLevelOperation ??= operation.Value;
-
-            using var logOp = Log.OnEnterAndConfirmOnExit($"Run: {operation.Value}");
-
             try
             {
-                var operationTask = operation
-                    .ExecuteAsync()
-                    .ContinueWith(t =>
-                    {
-                        if (!operation.TaskCompletionSource.Task.IsCompleted)
-                        {
-                            if (t.GetIsCompletedSuccessfully())
-                            {
-                                operation.TaskCompletionSource.TrySetResult(t.Result);
-                            }
-                        }
-                    });
-
-                Task.WaitAny(new[]
-                {
-                    operationTask,
-                    operation.TaskCompletionSource.Task
-                }, _schedulerDisposalSource.Token);
-
-                logOp.Succeed();
-            }
-            catch (Exception exception)
-            {
-                if (!operation.TaskCompletionSource.Task.IsCompleted)
-                {
-                    operation.TaskCompletionSource.SetException(exception);
-                }
-            }
-        }
-
-        private void RunAfterOtherWork(CancellationToken cancellationToken, ScheduledOperation operation)
-        {
-            _topLevelScheduledOperations.Add(operation, cancellationToken);
-        }
-
-        private void RunPreemptively(ScheduledOperation operation)
-        {
-            try
-            {
-                foreach (var deferredOperation in OperationsToRunBefore(operation))
-                {
-                    Run(deferredOperation);
-                }
-
-                Run(operation);
+                ExecutionContext.Run(
+                    executionContext!.CreateCopy(),
+                    _ => RunDeferredOperationsAndThen(operation),
+                    operation);
 
                 operation.TaskCompletionSource.Task.Wait(_schedulerDisposalSource.Token);
             }
-            catch (Exception exception)
+            catch (Exception e)
             {
-                Log.Error(exception);
+                Log.Error("while executing {operation}", e, operation);
+            }
+            finally
+            {
+                _currentlyRunningOperation = default;
             }
         }
-        
-        private IEnumerable<ScheduledOperation> OperationsToRunBefore(
-            ScheduledOperation operation)
+    }
+
+    private void Run(ScheduledOperation operation)
+    {
+        using var logOp = Log.OnEnterAndConfirmOnExit(arg: operation.Value);
+
+        try
         {
-            for (var i = 0; i < _deferredOperationSources.Count; i++)
-            {
-                var source = _deferredOperationSources[i];
-
-                var deferredOperations = source.GetDeferredOperations(
-                    operation.Value,
-                    operation.Scope);
-
-                for (var j = 0; j < deferredOperations.Count; j++)
+            var operationTask = operation
+                .ExecuteAsync()
+                .ContinueWith(t =>
                 {
-                    var deferred = deferredOperations[j];
+                    if (!operation.TaskCompletionSource.Task.IsCompleted)
+                    {
+                        if (t.GetIsCompletedSuccessfully())
+                        {
+                            operation.TaskCompletionSource.TrySetResult(t.Result);
+                        }
+                        else if (t.Exception is { })
+                        {
+                            operation.TaskCompletionSource.SetException(t.Exception);
+                        }
+                    }
+                });
 
-                    var deferredOperation = new ScheduledOperation(
-                        deferred,
-                        source.OnExecuteAsync,
-                        true,
-                        scope: operation.Scope);
+            Task.WaitAny(new[]
+            {
+                operationTask,
+                operation.TaskCompletionSource.Task
+            }, _schedulerDisposalSource.Token);
 
-                    yield return deferredOperation;
-                }
+            logOp.Succeed();
+        }
+        catch (Exception exception)
+        {
+            if (!operation.TaskCompletionSource.Task.IsCompleted)
+            {
+                operation.TaskCompletionSource.SetException(exception);
+            }
+        }
+    }
+
+    private void EnqueueTopLevelOperation(ScheduledOperation operation)
+    {
+        _topLevelScheduledOperations.Add(operation, operation.CancellationToken);
+    }
+
+    private void RunChildOperation(ScheduledOperation operation)
+    {
+        try
+        {
+            _childOperationsBarrier.AddParticipant();
+
+            RunDeferredOperationsAndThen(operation);
+        }
+        finally
+        {
+            _childOperationsBarrier.RemoveParticipant();
+        }
+    }
+
+    private void RunDeferredOperationsAndThen(ScheduledOperation operation)
+    {
+        try
+        {
+            foreach (ScheduledOperation deferredOperation in GetDeferredOperationsToRunBefore(operation))
+            {
+                Run(deferredOperation);
+            }
+
+            Run(operation);
+        }
+        catch (Exception exception)
+        {
+            Log.Error(exception);
+        }
+    }
+
+    private IEnumerable<ScheduledOperation> GetDeferredOperationsToRunBefore(
+        ScheduledOperation operation)
+    {
+        for (var i = 0; i < _deferredOperationSources.Count; i++)
+        {
+            var source = _deferredOperationSources[i];
+
+            var deferredOperations = source.GetDeferredOperations(
+                operation.Value,
+                operation.Scope);
+
+            for (var j = 0; j < deferredOperations.Count; j++)
+            {
+                var deferred = deferredOperations[j];
+
+                var deferredOperation = new ScheduledOperation(
+                    deferred,
+                    source.OnExecuteAsync,
+                    true,
+                    parentOperation: null,
+                    scope: operation.Scope);
+
+                yield return deferredOperation;
+            }
+        }
+    }
+
+    public void RegisterDeferredOperationSource(
+        GetDeferredOperationsDelegate getDeferredOperations,
+        KernelSchedulerDelegate<T, TResult> kernelSchedulerOnExecuteAsync)
+    {
+        ThrowIfDisposed();
+
+        _deferredOperationSources.Add(new DeferredOperationSource(kernelSchedulerOnExecuteAsync, getDeferredOperations));
+    }
+
+    public void Dispose()
+    {
+        _disposables.Dispose();
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_schedulerDisposalSource.IsCancellationRequested)
+        {
+            throw new ObjectDisposedException($"{nameof(KernelScheduler<T, TResult>)} has been disposed.");
+        }
+    }
+
+    public delegate IReadOnlyList<T> GetDeferredOperationsDelegate(T operationToExecute, string queueName);
+
+    private class ScheduledOperation
+    {
+        private static readonly Action<Action, CancellationToken> _runWithControlledExecution = default;
+
+        static ScheduledOperation()
+        {
+            try
+            {
+                // todo: this is still a problem with fsi
+
+                // ControlledExecution.Run isn't available in .NET Standard but since we're most likely actually running in .NET 7+, we can try to bind a delegate to it.
+
+                //if (Type.GetType("System.Runtime.ControlledExecution, System.Private.CoreLib", false) is { } controlledExecutionType &&
+                //    controlledExecutionType.GetMethod("Run", BindingFlags.Static | BindingFlags.Public) is { } runMethod)
+                //{
+                //    var actionParameter = Expression.Parameter(typeof(Action), "action");
+
+                //    var cancellationTokenParameter = Expression.Parameter(typeof(CancellationToken), "cancellationToken");
+
+                //    _runWithControlledExecution = Expression.Lambda<Action<Action, CancellationToken>>(
+                //                                                Expression.Call(runMethod, actionParameter, cancellationTokenParameter),
+                //                                                actionParameter,
+                //                                                cancellationTokenParameter)
+                //                                            .Compile();
+                //}
+            }
+            catch
+            {
             }
         }
 
-        public void RegisterDeferredOperationSource(
-            GetDeferredOperationsDelegate getDeferredOperations,
-            KernelSchedulerDelegate<T, TResult> kernelSchedulerOnExecuteAsync)
-        {
-            ThrowIfDisposed();
+        private readonly KernelSchedulerDelegate<T, TResult> _onExecuteAsync;
 
-            _deferredOperationSources.Add(new DeferredOperationSource(kernelSchedulerOnExecuteAsync, getDeferredOperations));
-        }
+        private readonly List<ScheduledOperation> _childOperations = new();
 
-        public void Dispose()
+        public ScheduledOperation(
+            T value,
+            KernelSchedulerDelegate<T, TResult> onExecuteAsync,
+            bool isDeferred,
+            ScheduledOperation parentOperation = null,
+            ExecutionContext executionContext = default,
+            string scope = "default",
+            CancellationToken cancellationToken = default)
         {
-            _disposables.Dispose();
-        }
+            Value = value;
+            IsDeferred = isDeferred;
 
-        private void ThrowIfDisposed()
-        {
-            if (_schedulerDisposalSource.IsCancellationRequested)
+            ExecutionContext = executionContext;
+            _onExecuteAsync = onExecuteAsync;
+            CancellationToken = cancellationToken;
+            Scope = scope;
+
+            TaskCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            if (parentOperation is not null)
             {
-                throw new ObjectDisposedException($"{nameof(KernelScheduler<T, TResult>)} has been disposed.");
-            }
-        }
-
-        public delegate IReadOnlyList<T> GetDeferredOperationsDelegate(T operationToExecute, string queueName);
-
-        private class ScheduledOperation
-        {
-            private readonly KernelSchedulerDelegate<T, TResult> _onExecuteAsync;
-
-            public ScheduledOperation(
-                T value,
-                KernelSchedulerDelegate<T, TResult> onExecuteAsync,
-                bool isDeferred,
-                ExecutionContext executionContext = default,
-                string scope = "default",
-                CancellationToken cancellationToken = default)
-            {
-                Value = value;
-                IsDeferred = isDeferred;
-                ExecutionContext = executionContext;
-                _onExecuteAsync = onExecuteAsync;
-                Scope = scope;
-
-                TaskCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                if (cancellationToken != default)
+                IsChildOperation = true;
+                var parentOperationCancellationToken = parentOperation.CancellationToken;
+                if (parentOperationCancellationToken.CanBeCanceled)
                 {
-                    cancellationToken.Register(() =>
+                    parentOperationCancellationToken.Register(() =>
                     {
                         TaskCompletionSource.TrySetCanceled();
                     });
                 }
             }
 
-            public TaskCompletionSource<TResult> TaskCompletionSource { get; }
-
-            public T Value { get; }
-
-            public bool IsDeferred { get; }
-
-            public ExecutionContext ExecutionContext { get; }
-
-            public string Scope { get; }
-
-            public Task<TResult> ExecuteAsync() => _onExecuteAsync(Value);
-
-            public override string ToString()
+            if (cancellationToken.CanBeCanceled)
             {
-                return Value.ToString();
+                cancellationToken.Register(() => { TaskCompletionSource.TrySetCanceled(); });
             }
         }
 
-        private class DeferredOperationSource
+        public readonly CancellationToken CancellationToken;
+
+        public TaskCompletionSource<TResult> TaskCompletionSource { get; }
+
+        public T Value { get; }
+
+        public bool IsDeferred { get; }
+
+        public bool IsChildOperation { get; }
+
+        public ExecutionContext ExecutionContext { get; }
+
+        public string Scope { get; }
+
+        public Task<TResult> ExecuteAsync()
         {
-            public DeferredOperationSource(KernelSchedulerDelegate<T, TResult> kernelSchedulerOnExecuteAsync, GetDeferredOperationsDelegate getDeferredOperations)
+            if (_runWithControlledExecution is not null &&
+                CancellationToken.CanBeCanceled)
             {
-                OnExecuteAsync = kernelSchedulerOnExecuteAsync;
-                GetDeferredOperations = getDeferredOperations;
+                try
+                {
+                    TResult result = default;
+
+                    _runWithControlledExecution(() =>
+                    {
+                        var r = _onExecuteAsync(Value).GetAwaiter().GetResult();
+                        result = r;
+
+                    }, CancellationToken);
+
+                    return Task.FromResult(result);
+                }
+                catch (Exception exception)
+                {
+                    return Task.FromException<TResult>(exception);
+                }
             }
+            else
+            {
+                var result = _onExecuteAsync(Value);
 
-            public GetDeferredOperationsDelegate GetDeferredOperations { get; }
+                return result;
+            }
+        }
 
-            public KernelSchedulerDelegate<T, TResult> OnExecuteAsync { get; }
+        public override string ToString() => Value.ToString();
+
+        public void AddChild(ScheduledOperation operation)
+        {
+            lock (_childOperations)
+            {
+                _childOperations.Add(operation);
+            }
+        }
+
+        public IEnumerable GetChildOperations()
+        {
+            ScheduledOperation[] operations;
+            lock (_childOperations)
+            {
+                operations = _childOperations.ToArray();
+            }
+            return operations;
         }
     }
 
-    static class DotNetStandardHelpers
+    private class DeferredOperationSource
     {
-#if !NETSTANDARD2_0
-        internal static bool GetIsCompletedSuccessfully(this Task task)
+        public DeferredOperationSource(KernelSchedulerDelegate<T, TResult> kernelSchedulerOnExecuteAsync, GetDeferredOperationsDelegate getDeferredOperations)
         {
-            return task.IsCompletedSuccessfully;
+            OnExecuteAsync = kernelSchedulerOnExecuteAsync;
+            GetDeferredOperations = getDeferredOperations;
         }
+
+        public GetDeferredOperationsDelegate GetDeferredOperations { get; }
+
+        public KernelSchedulerDelegate<T, TResult> OnExecuteAsync { get; }
+    }
+
+    protected virtual bool IsChildOperation(T current, T incoming) => false;
+}
+
+static class DotNetStandardHelpers
+{
+#if !NETSTANDARD2_0
+    internal static bool GetIsCompletedSuccessfully(this Task task)
+    {
+        return task.IsCompletedSuccessfully;
+    }
 #else
         // NetStandard 2.1
         // internal const int TASK_STATE_RAN_TO_COMPLETION = 0x1000000;                          // bin: 0000 0001 0000 0000 0000 0000 0000 0000
@@ -322,5 +429,4 @@ namespace Microsoft.DotNet.Interactive
             return task.IsCompleted && !task.IsFaulted && !task.IsCanceled;
         }
 #endif
-    }
 }

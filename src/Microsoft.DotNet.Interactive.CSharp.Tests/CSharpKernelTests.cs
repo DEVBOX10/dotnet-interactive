@@ -9,52 +9,51 @@ using Microsoft.DotNet.Interactive.Tests.Utility;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace Microsoft.DotNet.Interactive.CSharp.Tests
+namespace Microsoft.DotNet.Interactive.CSharp.Tests;
+
+public class CSharpKernelTests : LanguageKernelTestBase
 {
-    public class CSharpKernelTests : LanguageKernelTestBase
+    public CSharpKernelTests(ITestOutputHelper output) : base(output)
     {
-        public CSharpKernelTests(ITestOutputHelper output) : base(output)
+    }
+
+    [Fact]
+    public async Task Script_state_is_available_within_middleware_pipeline()
+    {
+        var variableCountBeforeEvaluation = 0;
+        var variableCountAfterEvaluation = 0;
+
+        using var kernel = new CSharpKernel();
+
+        kernel.AddMiddleware(async (command, context, next) =>
         {
-        }
+            var k = context.HandlingKernel as CSharpKernel;
 
-        [Fact]
-        public async Task Script_state_is_available_within_middleware_pipeline()
-        {
-            var variableCountBeforeEvaluation = 0;
-            var variableCountAfterEvaluation = 0;
+            await next(command, context);
 
-            using var kernel = new CSharpKernel();
+            variableCountAfterEvaluation = k.ScriptState.Variables.Length;
+        });
 
-            kernel.AddMiddleware(async (command, context, next) =>
-            {
-                var k = context.HandlingKernel as CSharpKernel;
+        await kernel.SendAsync(new SubmitCode("var x = 1;"));
 
-                await next(command, context);
+        variableCountBeforeEvaluation.Should().Be(0);
+        variableCountAfterEvaluation.Should().Be(1);
+    }
 
-                variableCountAfterEvaluation = k.ScriptState.Variables.Length;
-            });
+    [Fact]
+    public async Task GetValueInfos_only_returns_non_shadowed_values()
+    {
+        using var kernel = new CSharpKernel();
 
-            await kernel.SendAsync(new SubmitCode("var x = 1;"));
+        await kernel.SendAsync(new SubmitCode("var x = 1;"));
+        await kernel.SendAsync(new SubmitCode("var x = \"two\";"));
 
-            variableCountBeforeEvaluation.Should().Be(0);
-            variableCountAfterEvaluation.Should().Be(1);
-        }
+        var (success, valueInfosProduced) = await kernel.TryRequestValueInfosAsync();
 
-        [Fact]
-        public async Task GetValueInfos_only_returns_non_shadowed_values()
-        {
-            using var kernel = new CSharpKernel();
+        success.Should().BeTrue();
 
-            await kernel.SendAsync(new SubmitCode("var x = 1;"));
-            await kernel.SendAsync(new SubmitCode("var x = \"two\";"));
-
-            var (success, valueInfosProduced) = await kernel.TryRequestValueInfosAsync();
-
-            success.Should().BeTrue();
-
-            valueInfosProduced.ValueInfos
-                .Should()
-                .ContainSingle(v => v.Name == "x");
-        }
+        valueInfosProduced.ValueInfos
+            .Should()
+            .ContainSingle(v => v.Name == "x");
     }
 }

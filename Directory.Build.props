@@ -15,11 +15,14 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <MicrosoftNETTestSdkVersion>17.2.0</MicrosoftNETTestSdkVersion>
-    <NewtonsoftJsonVersion>13.0.1 </NewtonsoftJsonVersion>
-    <MicrosoftCodeAnalysisCommonVersion>4.2.0</MicrosoftCodeAnalysisCommonVersion>
-    <SystemReactiveVersion>5.0.0</SystemReactiveVersion>
-    <SystemSecurityCryptographyXmlVersion>6.0.1</SystemSecurityCryptographyXmlVersion>
+    <MicrosoftNETTestSdkVersion>17.4.0</MicrosoftNETTestSdkVersion>
+    <NewtonsoftJsonVersion>13.0.2</NewtonsoftJsonVersion>
+    <MicrosoftCodeAnalysisCommonVersion>4.5.0</MicrosoftCodeAnalysisCommonVersion>
+    <SystemDrawingCommonVersion>7.0.0</SystemDrawingCommonVersion>
+    <SystemReactiveVersion>6.0.0</SystemReactiveVersion>
+    <SystemSecurityCryptographyXmlVersion>7.0.0</SystemSecurityCryptographyXmlVersion>
+    <xunitVersion>2.4.2</xunitVersion>
+    <xunitrunnervisualstudioVersion>2.4.5</xunitrunnervisualstudioVersion>
   </PropertyGroup>
 
   <PropertyGroup>

@@ -3,7 +3,8 @@
     "formattedValues": [
       {
         "mimeType": "text/plain",
-        "value": "123"
+        "value": "123",
+        "suppressDisplay": false
       }
     ],
     "valueId": null
@@ -21,6 +22,7 @@
       "destinationUri": null
     },
     "routingSlip": [
+      "kernel://somelocation/kernelName?tag=arrived",
       "kernel://somelocation/kernelName"
     ]
   },

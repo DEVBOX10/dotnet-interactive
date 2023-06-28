@@ -5,6 +5,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
+using FluentAssertions.Execution;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
@@ -31,6 +32,22 @@ public class KernelInfoTests
         }
 
         [Fact]
+        public void When_LanguageName_is_not_set_then_DisplayName_is_LocalName()
+        {
+            var kernelInfo = new KernelInfo("csharp");
+            kernelInfo.DisplayName.Should().Be("csharp");
+        }
+
+        [Fact]
+        public void By_default_DisplayName_is_derived_from_local_and_language_names()
+        {
+            var kernelInfo = new KernelInfo("csharp");
+            kernelInfo.LanguageName = "C#";
+
+            kernelInfo.DisplayName.Should().Be("csharp - C#");
+        }
+
+        [Fact]
         public async Task It_returns_kernel_info_for_all_children()
         {
             using var kernel = new CompositeKernel
@@ -41,10 +58,10 @@ public class KernelInfoTests
 
             var result = await kernel.SendAsync(new RequestKernelInfo());
 
-            var events = result.KernelEvents.ToSubscribedList();
+            using var _ = new AssertionScope();
 
-            events.Should().ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "csharp");
-            events.Should().ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "fsharp");
+            result.Events.Should().ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "csharp");
+            result.Events.Should().ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "fsharp");
         }
 
         [Fact]
@@ -76,9 +93,7 @@ public class KernelInfoTests
             var result = await localCompositeKernel.SendAsync(
                              new RequestKernelInfo(remoteKernelUri));
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should()
+            result.Events.Should()
                   .ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "fsharp")
                   .Which
                   .KernelInfo
@@ -119,66 +134,17 @@ public class KernelInfoTests
             var result = await localCompositeKernel.SendAsync(
                 new RequestKernelInfo(targetKernelName: "proxied-fsharp"));
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should()
-                .ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "proxied-fsharp")
-                .Which
-                .KernelInfo
-                .Should()
-                .BeEquivalentTo(new
-                {
-                    LanguageName = "fsharp",
-                    RemoteUri = remoteKernelUri
-                }, c => c.ExcludingMissingMembers());
-        }
-
-        [Fact]
-        public async Task proxyKernel_kernelInfo_is_updated_to_reflect_remote_kernelInfo_on_first_command_sent_to_remote()
-        {
-            using var localCompositeKernel = new CompositeKernel("LOCAL")
-            {
-                new FakeKernel("fsharp")
-            };
-            var proxiedCsharpKernel = new CSharpKernel();
-            using var remoteCompositeKernel = new CompositeKernel("REMOTE")
-            {
-                proxiedCsharpKernel,
-                new FakeKernel("fsharp", languageName: "fsharp")
-            };
-
-            ConnectHost.ConnectInProcessHost(
-                localCompositeKernel,
-                remoteCompositeKernel);
-
-            var remoteKernelUri = new Uri("kernel://remote/fsharp");
-
-            await localCompositeKernel
-                .Host
-                .ConnectProxyKernelOnDefaultConnectorAsync(
-                    "proxied-fsharp",
-                    remoteKernelUri);
-
-            var proxyKernel = localCompositeKernel.FindKernelByName("proxied-fsharp");
-
-            proxyKernel.KernelInfo
-                .Should()
-                .BeEquivalentTo(new
-                {
-                    LanguageName = (string)null,
-                    RemoteUri = remoteKernelUri
-                }, c => c.ExcludingMissingMembers());
-
-            await localCompositeKernel.SendAsync(
-                new SubmitCode("let x = 1",targetKernelName: "proxied-fsharp"));
-
-            proxyKernel.KernelInfo
-                .Should()
-                .BeEquivalentTo(new
-                {
-                    LanguageName = "fsharp",
-                    RemoteUri = remoteKernelUri
-                }, c => c.ExcludingMissingMembers());
+            result.Events
+                  .Should()
+                  .ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "proxied-fsharp")
+                  .Which
+                  .KernelInfo
+                  .Should()
+                  .BeEquivalentTo(new
+                  {
+                      LanguageName = "fsharp",
+                      RemoteUri = remoteKernelUri
+                  }, c => c.ExcludingMissingMembers());
         }
 
         [Fact]
@@ -205,16 +171,14 @@ public class KernelInfoTests
 
             var result = await localCompositeKernel.SendAsync(new RequestKernelInfo());
 
-            var events = result.KernelEvents
-                               .ToSubscribedList()
-                               .OfType<KernelInfoProduced>();
+            var events = result.Events.OfType<KernelInfoProduced>();
 
             events
                 .Select(k => k.KernelInfo.Uri)
                 .Should()
                 .Contain(new Uri("kernel://remote/remote-fake"));
         }
-        
+
         [Fact]
         public async Task Unproxied_kernels_have_a_URI()
         {
@@ -227,10 +191,8 @@ public class KernelInfoTests
 
             var result = await localCompositeKernel.SendAsync(new RequestKernelInfo());
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should()
-                  .ContainSingle<KernelInfoProduced>()
+            result.Events.Should()
+                  .ContainSingle<KernelInfoProduced>(k => k.KernelInfo.LocalName == "csharp")
                   .Which
                   .KernelInfo
                   .Uri
@@ -298,9 +260,9 @@ public class KernelInfoTests
         public async Task When_kernel_info_is_requested_from_proxy_then_ProxyKernel_kernel_info_is_updated()
         {
             using var localCompositeKernel = new CompositeKernel();
-            
+
             var remoteCsharpKernel = new CSharpKernel();
-            
+
             using var remoteCompositeKernel = new CompositeKernel
             {
                 remoteCsharpKernel
@@ -339,10 +301,10 @@ public class KernelInfoTests
         public void when_kernels_are_added_it_produces_KernelInfoProduced_events()
         {
             using var compositeKernel = new CompositeKernel();
-                
+
             var events = compositeKernel.KernelEvents.ToSubscribedList();
 
-            compositeKernel.Add(new CSharpKernel(), new []{"cs", "cs2"});
+            compositeKernel.Add(new CSharpKernel(), new[] { "cs", "cs2" });
 
             events.Should().ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "csharp");
         }
@@ -361,11 +323,9 @@ using Microsoft.DotNet.Interactive.CSharp;
 var compositeKernel = Kernel.Root as CompositeKernel;
 compositeKernel.Add(new CSharpKernel(""csharpTwo""), new []{""cs2""});
 ";
-            var result = await compositeKernel.SendAsync(new SubmitCode(code, targetKernelName:"csharp"));
+            var result = await compositeKernel.SendAsync(new SubmitCode(code, targetKernelName: "csharp"));
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should().ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "csharpTwo");
+            result.Events.Should().ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "csharpTwo");
         }
     }
 
@@ -378,9 +338,8 @@ compositeKernel.Add(new CSharpKernel(""csharpTwo""), new []{""cs2""});
 
             var result = await kernel.SendAsync(new RequestKernelInfo());
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should()
+            result.Events
+                  .Should()
                   .ContainSingle<KernelInfoProduced>()
                   .Which
                   .KernelInfo
@@ -398,9 +357,7 @@ compositeKernel.Add(new CSharpKernel(""csharpTwo""), new []{""cs2""});
 
             var result = await kernel.SendAsync(new RequestKernelInfo());
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should()
+            result.Events.Should()
                   .ContainSingle<KernelInfoProduced>()
                   .Which
                   .KernelInfo
@@ -416,9 +373,7 @@ compositeKernel.Add(new CSharpKernel(""csharpTwo""), new []{""cs2""});
 
             var result = await kernel.SendAsync(new RequestKernelInfo());
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should()
+            result.Events.Should()
                   .ContainSingle<KernelInfoProduced>()
                   .Which
                   .KernelInfo
@@ -434,9 +389,8 @@ compositeKernel.Add(new CSharpKernel(""csharpTwo""), new []{""cs2""});
 
             var result = await kernel.SendAsync(new RequestKernelInfo());
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should()
+            result.Events
+                  .Should()
                   .ContainSingle<KernelInfoProduced>()
                   .Which
                   .KernelInfo
@@ -454,9 +408,8 @@ compositeKernel.Add(new CSharpKernel(""csharpTwo""), new []{""cs2""});
 
             var result = await kernel.SendAsync(new RequestKernelInfo());
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should()
+            result.Events
+                  .Should()
                   .ContainSingle<KernelInfoProduced>()
                   .Which
                   .KernelInfo
@@ -476,9 +429,8 @@ compositeKernel.Add(new CSharpKernel(""csharpTwo""), new []{""cs2""});
 
             var result = await kernel.SendAsync(new RequestKernelInfo());
 
-            var events = result.KernelEvents.ToSubscribedList();
-
-            events.Should()
+            result.Events
+                  .Should()
                   .ContainSingle<KernelInfoProduced>()
                   .Which
                   .KernelInfo
@@ -490,5 +442,61 @@ compositeKernel.Add(new CSharpKernel(""csharpTwo""), new []{""cs2""});
                       nameof(RequestDiagnostics),
                       nameof(CustomCommandTypes.FirstSubmission.MyCommand));
         }
+    }
+
+    [Fact]
+    public async Task when_hosts_have_bidirectional_proxies_RequestKernelInfo_is_not_forwarded_back_to_the_host_that_initiated_the_request()
+    {
+        using var localCompositeKernel = new CompositeKernel("LOCAL")
+            {
+                new FakeKernel("fsharp")
+            };
+
+        using var remoteCompositeKernel = new CompositeKernel("REMOTE")
+            {
+                new CSharpKernel(),
+                new FakeKernel("fsharp", languageName: "fsharp")
+            };
+
+        ConnectHost.ConnectInProcessHost(
+            localCompositeKernel,
+            remoteCompositeKernel);
+
+        var remoteKernelUri = new Uri("kernel://remote/fsharp");
+
+        await localCompositeKernel
+            .Host
+            .ConnectProxyKernelOnDefaultConnectorAsync(
+                "proxied-fsharp",
+                remoteKernelUri);
+
+        // make a proxy from local to the remote composite kernel
+        await localCompositeKernel
+            .Host
+            .ConnectProxyKernelOnDefaultConnectorAsync(
+                "proxied-remote",
+                remoteCompositeKernel.KernelInfo.Uri);
+
+        // make a proxy from remote to the local composite kernel
+        await remoteCompositeKernel
+            .Host
+            .ConnectProxyKernelOnDefaultConnectorAsync(
+                "proxied-local",
+                localCompositeKernel.KernelInfo.Uri);
+
+        var result = await localCompositeKernel.SendAsync(
+            new RequestKernelInfo());
+
+        result.Events
+              .Should()
+              .ContainSingle<KernelInfoProduced>(e => e.KernelInfo.LocalName == "proxied-fsharp")
+              .Which
+              .KernelInfo
+              .Should()
+              .BeEquivalentTo(new
+              {
+                  LanguageName = "fsharp",
+                  RemoteUri = remoteKernelUri
+              }, c => c.ExcludingMissingMembers());
     }
 }

@@ -1,4 +1,4 @@
-// Copyright (c) .NET Foundation and contributors. All rights reserved.
+﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
@@ -6,6 +6,7 @@ using System.CommandLine.Invocation;
 using System.CommandLine.IO;
 using System.CommandLine.NamingConventionBinder;
 using System.CommandLine.Parsing;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -18,8 +19,8 @@ using Microsoft.DotNet.Interactive.App.CommandLine;
 using Microsoft.DotNet.Interactive.App.Connection;
 using Microsoft.DotNet.Interactive.App.Tests.Extensions;
 using Microsoft.DotNet.Interactive.Commands;
-using Microsoft.DotNet.Interactive.Http;
 using Microsoft.DotNet.Interactive.Connection;
+using Microsoft.DotNet.Interactive.Http;
 using Microsoft.DotNet.Interactive.Telemetry;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Microsoft.DotNet.Interactive.Utility;
@@ -105,7 +106,7 @@ public class CommandLineParserTests : IDisposable
             .Be(logPath.FullName);
     }
 
-    [Fact] 
+    [Fact]
     public async Task stdio_mode_honors_log_path()
     {
         using var logPath = DisposableDirectory.Create();
@@ -116,7 +117,7 @@ public class CommandLineParserTests : IDisposable
 
         using (var kernel = new CompositeKernel())
         {
-            kernel.AddKernelConnector(new ConnectStdIoCommand());
+            kernel.AddKernelConnector(new ConnectStdIoCommand(new Uri("kernel://test-kernel")));
 
             await kernel.SendAsync(new SubmitCode($"#!connect stdio --kernel-name proxy --command \"{Dotnet.Path}\" \"{typeof(Program).Assembly.Location}\" stdio --log-path \"{logPath.Directory.FullName}\" --verbose"));
 
@@ -135,25 +136,25 @@ public class CommandLineParserTests : IDisposable
              predicate: file => file.Length > 0))
             .Should()
             .BeTrue($"expected non-empty log file within {waitTime.TotalSeconds}s");
-        
+
         var logFileContents = new StringBuilder();
 
         await using var fileStream = new FileStream(logFile.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var fileReader = new StreamReader(fileStream);
-        
+
         while (!fileReader.EndOfStream)
         {
             var line = await fileReader.ReadLineAsync();
             logFileContents.Append(line);
         }
 
-        logFileContents.ToString().Should().Contain("CodeSubmissionReceived: 1+1");
+        logFileContents.ToString().Should().Contain("[KernelInvocationContext]  ▶  +[ ⁞Ϲ⁞ SubmitCode 1+1");
     }
 
     [Fact]
     public async Task It_parses_verbose_option()
     {
-       await _parser.InvokeAsync($"jupyter --verbose {_connectionFile}", _console);
+        await _parser.InvokeAsync($"jupyter --verbose {_connectionFile}", _console);
 
         _startOptions
             .Verbose
@@ -181,7 +182,7 @@ public class CommandLineParserTests : IDisposable
     {
         _parser.Invoke("jupyter -h", _console);
 
-        _console.Out.ToString().Should().Contain("default: 1000-3000");
+        _console.Out.ToString().Should().Contain("default: 2048-3000");
     }
 
     [Fact]
@@ -318,6 +319,34 @@ public class CommandLineParserTests : IDisposable
         await _parser.InvokeAsync($"jupyter {expected}", testConsole);
 
         testConsole.Error.ToString().Should().ContainAll("File does not exist", "not_exist.json");
+    }
+
+    [Fact]
+    public void stdio_command_kernel_host_defaults_to_process_id()
+    {
+        var result = _parser.Parse("stdio");
+
+        var binder = new ModelBinder<StartupOptions>();
+
+        var options = (StartupOptions)binder.CreateInstance(new InvocationContext(result).BindingContext);
+
+        options.KernelHost
+            .Should()
+            .Be(new Uri($"kernel://pid-{Process.GetCurrentProcess().Id}"));
+    }
+
+    [Fact]
+    public void stdio_command_kernel_name_can_be_specified()
+    {
+        var result = _parser.Parse("stdio --kernel-host some-kernel-name");
+
+        var binder = new ModelBinder<StartupOptions>();
+
+        var options = (StartupOptions)binder.CreateInstance(new InvocationContext(result).BindingContext);
+
+        options.KernelHost
+            .Should()
+            .Be(new Uri("kernel://some-kernel-name"));
     }
 
     [Fact]

@@ -3,7 +3,8 @@
     "content": [
       {
         "mimeType": "text/markdown",
-        "value": "markdown"
+        "value": "markdown",
+        "suppressDisplay": false
       }
     ],
     "linePositionSpan": {
@@ -33,6 +34,7 @@
       "destinationUri": null
     },
     "routingSlip": [
+      "kernel://somelocation/kernelName?tag=arrived",
       "kernel://somelocation/kernelName"
     ]
   },

@@ -19,7 +19,7 @@ public class ImportNotebookTests : DocumentFormatTestsBase
     [InlineData(".dib", ".dib")]
     public async Task It_can_read_one_notebooks_imports_into_another(
         string importingNotebookExtension,
-        string importedNotebookExtension)
+        string importedFileExtension)
     {
         var importedCode = "// imported code";
 
@@ -28,9 +28,9 @@ public class ImportNotebookTests : DocumentFormatTestsBase
             new InteractiveDocumentElement(importedCode, "csharp")
         };
 
-        var importedNotebookPath = Path.GetTempFileName() + importedNotebookExtension;
+        var importedNotebookPath = Path.GetTempFileName() + importedFileExtension;
 
-        switch (importedNotebookExtension)
+        switch (importedFileExtension)
         {
             case ".dib":
                 await File.WriteAllTextAsync(importedNotebookPath, importedNotebook.ToCodeSubmissionContent());
@@ -66,6 +66,46 @@ public class ImportNotebookTests : DocumentFormatTestsBase
                          .Elements.Should().ContainSingle()
                          .Which
                          .Contents.Should().Contain(importedCode);
+    }
+
+    [Theory]
+    [InlineData(".cs", "csharp")]
+    [InlineData(".csx", "csharp")]
+    [InlineData(".fs", "fsharp")]
+    [InlineData(".fsx", "fsharp")]
+    [InlineData(".ps1", "pwsh")]
+    [InlineData(".html", "html")]
+    [InlineData(".js", "javascript")]
+    public async Task It_can_import_language_specific_source_files_into_a_notebook(
+        string importedFileExtension,
+        string expectedKernelName)
+    {
+        var importedFile = "// imported code";
+        
+        var importedFilePath = Path.GetTempFileName() + importedFileExtension;
+
+        await File.WriteAllTextAsync(importedFilePath, importedFile);
+
+        var importingNotebook =
+            new InteractiveDocument
+            {
+                new InteractiveDocumentElement($"#!import {importedFilePath}"),
+                new InteractiveDocumentElement("// code in importing notebook", "csharp")
+            };
+
+        var importingNotebookText = importingNotebook.ToJupyterJson();
+
+        var document = Notebook.Parse(importingNotebookText, DefaultKernelInfos);
+
+        var importedDocuments = await document.GetImportsAsync().ToArrayAsync();
+
+        var importedElement = importedDocuments.Should().ContainSingle()
+                                               .Which
+                                               .Elements.Should().ContainSingle()
+                                               .Which;
+
+        importedElement.Contents.Should().Be(importedFile);
+        importedElement.KernelName.Should().Be(expectedKernelName);
     }
 
     [Fact]

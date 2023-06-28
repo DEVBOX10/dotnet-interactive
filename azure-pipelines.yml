@@ -1,14 +1,65 @@
 # CI and PR triggers
 trigger:
-- main
-- feature/*
-- hotfix/*
-- release/*
+  branches:
+    include:
+    - main
+    - feature/*
+    - hotfix/*
+    - release/*
+  paths:
+    include:
+    - '*'
+    exclude:
+    - '**/*.md'
+    - .config/*
+    - .devcontainer/*
+    - .github/*
+    - .vscode/*
+    - assets/*
+    - docs/*
+    - images/*
+    - .editorconfig
+    - .gitignore
+    - '*.txt'
+    - '*.github-issues'
+
 pr:
-- main
-- feature/*
-- hotfix/*
-- release/*
+  branches:
+    include:
+    - main
+    - feature/*
+    - hotfix/*
+    - release/*
+  paths:
+    include:
+    - '*'
+    exclude:
+    - '**/*.md'
+    - .config/*
+    - .devcontainer/*
+    - .github/*
+    - .vscode/*
+    - assets/*
+    - docs/*
+    - images/*
+    - .editorconfig
+    - .gitignore
+    - '*.txt'
+    - '*.github-issues'
+
+# Scheduled trigger that will run at 8:00 AM every Monday and Wednesday
+schedules:
+- cron: "0 8 * * Mon"
+  displayName: Weekly build for Localization Updates (Monday)
+  branches:
+    include:
+    - main
+- cron: "0 8 * * Wed"
+  displayName: Weekly build for Localization Updates (Wednesday)
+  branches:
+    include:
+    - main
+
 
 # Variables
 variables:
@@ -28,17 +79,30 @@ variables:
     value: $(Build.SourcesDirectory)/artifacts/.trydotnet/packages
   - name: NodeJSVersion
     value: '16.13.0'
+  - name: LocPRCreationEnabled
+    value: ${{ eq(variables['Build.Reason'], 'Schedule') }}
   - name: Codeql.Enabled
     value: true
   - ${{ if and(ne(variables['System.TeamProject'], 'public'), notin(variables['Build.Reason'], 'PullRequest')) }}:
     - name: _DotNetValidationArtifactsCategory
       value: .NETCoreValidation
     - group: DotNet-Interactive-SDLValidation-Params
+  - template: /eng/common/templates/variables/pool-providers.yml
 
 stages:
 - stage: build
   displayName: Build and Test
   jobs:
+  - ${{ if ne(variables['System.TeamProject'], 'public') }}:
+    - template: /eng/common/templates/job/onelocbuild.yml
+      parameters:
+        MirrorRepo: interactive
+        MirrorBranch: main
+        SkipLocProjectJsonGeneration: true
+        LclSource: lclFilesfromPackage
+        LclPackageId: 'LCL-JUNO-PROD-INTERACTIVE'
+        CreatePr: $(LocPRCreationEnabled)
+
   - template: /eng/common/templates/jobs/jobs.yml
     parameters:
       enableMicrobuild: true
@@ -50,10 +114,10 @@ stages:
       - job: Windows_NT
         pool:
           ${{ if or(eq(variables['System.TeamProject'], 'public'), in(variables['Build.Reason'], 'PullRequest')) }}:
-            name: NetCore-Public
+            name: $(DncEngPublicBuildPool)
             demands: ImageOverride -equals windows.vs2022.amd64.open
           ${{ if and(ne(variables['System.TeamProject'], 'public'), notin(variables['Build.Reason'], 'PullRequest')) }}:
-            name: NetCore1ESPool-Internal
+            name: $(DncEngInternalBuildPool)
             demands: ImageOverride -equals windows.vs2022.amd64
         timeoutInMinutes: 90
         variables:
@@ -132,9 +196,11 @@ stages:
             TRYDOTNET_PACKAGES_PATH: $(TryDotNetPackagesPath)
             DOTNET_INTERACTIVE_FRONTEND_NAME: CI
 
-        - script: dotnet test -l trx --no-build --blame-hang-timeout 15m --blame-hang-dump-type full --blame-crash -c $(_BuildConfig) --results-directory $(Build.SourcesDirectory)/artifacts/TestResults/$(_BuildConfig)
+        - pwsh: ./test-retry-runner.ps1 -buildConfig $env:BUILDCONFIG
           displayName: Test / Blame
           workingDirectory: $(Build.SourcesDirectory)
+          env:
+            BUILDCONFIG: $(_BuildConfig)
           condition: ne(variables['SkipTests'], 'true')
 
         - pwsh: Get-ChildItem *.dmp -Recurse | Remove-Item
@@ -164,7 +230,7 @@ stages:
           displayName: Pack VS Code Extensions
           inputs:
             filePath: $(Build.SourcesDirectory)/eng/package/PackVSCodeExtension.ps1
-            arguments: -stableToolVersionNumber $(StableToolVersionNumber) -gitSha $(Build.SourceVersion) -outDir "$(Build.ArtifactStagingDirectory)\vscode"
+            arguments: -stableToolVersionNumber $(StableToolVersionNumber) -outDir "$(Build.ArtifactStagingDirectory)\vscode"
             workingDirectory: "$(Build.SourcesDirectory)/src"
             pwsh: true
 
@@ -179,8 +245,8 @@ stages:
           displayName: Pack NPM package
           inputs:
             filePath: $(Build.SourcesDirectory)/eng/package/PackNpmPackage.ps1
-            arguments: -packageVersionNumber $(StableToolVersionNumber) -gitSha $(Build.SourceVersion) -outDir "$(Build.ArtifactStagingDirectory)\npm"
-            workingDirectory: "$(Build.SourcesDirectory)/src/microsoft-dotnet-interactive"
+            arguments: -packageVersionNumber $(StableToolVersionNumber) -outDir "$(Build.ArtifactStagingDirectory)\npm"
+            workingDirectory: "$(Build.SourcesDirectory)/src/polyglot-notebooks"
             pwsh: true
 
         - task: PublishBuildArtifacts@1
@@ -213,10 +279,10 @@ stages:
       - job: Linux
         pool:
           ${{ if or(eq(variables['System.TeamProject'], 'public'), in(variables['Build.Reason'], 'PullRequest')) }}:
-            name: NetCore-Public
+            name: $(DncEngPublicBuildPool)
             demands: ImageOverride -equals Build.Ubuntu.1804.Amd64.Open
           ${{ if and(ne(variables['System.TeamProject'], 'public'), notin(variables['Build.Reason'], 'PullRequest')) }}:
-            name: NetCore1ESPool-Internal
+            name: $(DncEngInternalBuildPool)
             demands: ImageOverride -equals Build.Ubuntu.1804.Amd64
         variables:
         # Enable signing for internal, non-PR builds
@@ -277,9 +343,11 @@ stages:
             TRYDOTNET_PACKAGES_PATH: $(TryDotNetPackagesPath)
             DOTNET_INTERACTIVE_FRONTEND_NAME: CI
 
-        - script: dotnet test -l trx --no-build --blame-hang-timeout 15m --blame-hang-dump-type full --blame-crash -c $(_BuildConfig) --results-directory $(Build.SourcesDirectory)/artifacts/TestResults/$(_BuildConfig)
+        - pwsh: ./test-retry-runner.ps1 -buildConfig $env:BUILDCONFIG
           displayName: Test / Blame
           workingDirectory: $(Build.SourcesDirectory)
+          env:
+            BUILDCONFIG: $(_BuildConfig)
           condition: ne(variables['SkipTests'], 'true')
 
         - pwsh: Get-ChildItem *.dmp -Recurse | Remove-Item
@@ -304,50 +372,6 @@ stages:
             searchFolder: '$(Build.SourcesDirectory)/artifacts/TestResults'
           condition: always()
 
-  - template: /eng/common/templates/jobs/jobs.yml
-    parameters:
-      enableMicrobuild: true
-      enableSbom: false
-      jobs:
-      - job: Dockerfile_Main
-        pool:
-          ${{ if or(eq(variables['System.TeamProject'], 'public'), in(variables['Build.Reason'], 'PullRequest')) }}:
-            name: NetCore-Public
-            demands: ImageOverride -equals Build.Ubuntu.1804.Amd64.Open
-          ${{ if and(ne(variables['System.TeamProject'], 'public'), notin(variables['Build.Reason'], 'PullRequest')) }}:
-            name: NetCore1ESPool-Internal
-            demands: ImageOverride -equals Build.Ubuntu.1804.Amd64
-        steps:
-        - checkout: self
-          clean: true
-        - task: Docker@2
-          displayName: Build main Dockerfile
-          inputs:
-            command: build
-            Dockerfile: "$(Build.SourcesDirectory)/Dockerfile"
-
-  - template: /eng/common/templates/jobs/jobs.yml
-    parameters:
-      enableMicrobuild: true
-      enableSbom: false
-      jobs:
-      - job: Dockerfile_Binder_Dependency
-        pool:
-          ${{ if or(eq(variables['System.TeamProject'], 'public'), in(variables['Build.Reason'], 'PullRequest')) }}:
-            name: NetCore-Public
-            demands: ImageOverride -equals Build.Ubuntu.1804.Amd64.Open
-          ${{ if and(ne(variables['System.TeamProject'], 'public'), notin(variables['Build.Reason'], 'PullRequest')) }}:
-            name: NetCore1ESPool-Internal
-            demands: ImageOverride -equals Build.Ubuntu.1804.Amd64
-        steps:
-        - checkout: self
-          clean: true
-        - task: Docker@2
-          displayName: Build Binder dependency Dockerfile
-          inputs:
-            command: build
-            Dockerfile: "$(Build.SourcesDirectory)/samples/my binder/Dockerfile"
-
 #---------------------------------------------------------------------------------------------------------------------#
 #                                                    Post Build                                                       #
 #---------------------------------------------------------------------------------------------------------------------#
@@ -355,6 +379,8 @@ stages:
   - template: eng/common/templates/post-build/post-build.yml
     parameters:
       publishingInfraVersion: 3
+      # signing validation currently has issues with dotnet 7; disabling as per internal guidance
+      enableSigningValidation: false
       # Symbol validation is not entirely reliable as of yet, so should be turned off until https://github.com/dotnet/arcade/issues/2871 is resolved.
       enableSymbolValidation: false
       # SourceLink improperly looks for generated files.  See https://github.com/dotnet/arcade/issues/3069
@@ -381,7 +407,7 @@ stages:
 - ${{ if and(ne(variables['System.TeamProject'], 'public'), notin(variables['Build.Reason'], 'PullRequest')) }}:
   - template: eng/publish/publish-npm.yml
     parameters:
-      packageName: microsoft-dotnet-interactive-*.tgz
+      packageName: microsoft-polyglot-notebooks-*.tgz
       registryUrl: pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-tools/npm/registry/
       registryUser: dnceng
       registryEmail: dnceng@microsoft.com

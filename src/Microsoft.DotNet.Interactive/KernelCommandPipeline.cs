@@ -1,4 +1,4 @@
-﻿// Copyright (c) .NET Foundation and contributors. All rights reserved.
+// Copyright (c) .NET Foundation and contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
@@ -8,84 +8,84 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.DotNet.Interactive.Commands;
 
-namespace Microsoft.DotNet.Interactive
+namespace Microsoft.DotNet.Interactive;
+
+internal class KernelCommandPipeline
 {
-    internal class KernelCommandPipeline
+    private readonly Kernel _kernel;
+
+    private readonly List<(KernelCommandPipelineMiddleware func, string name)> _middlewares = new();
+
+    private KernelCommandPipelineMiddleware _pipeline;
+
+    public KernelCommandPipeline(Kernel kernel)
     {
-        private readonly Kernel _kernel;
+        _kernel = kernel ?? throw new ArgumentNullException(nameof(kernel));
+    }
 
-        private readonly List<(KernelCommandPipelineMiddleware func, string name)> _middlewares = new();
+    private void EnsureMiddlewarePipelineIsInitialized()
+    {
+        _pipeline ??= BuildPipeline();
+    }
 
-        private KernelCommandPipelineMiddleware _pipeline;
+    internal async Task SendAsync(
+        KernelCommand command,
+        KernelInvocationContext context)
+    {
+        command.StampRoutingSlipAsArrivedAndLog(_kernel.KernelInfo.Uri);
 
-        public KernelCommandPipeline(Kernel kernel)
+        EnsureMiddlewarePipelineIsInitialized();
+
+        try
         {
-            _kernel = kernel ?? throw new ArgumentNullException(nameof(kernel));
+            await _pipeline(command, context, (_, _) => Task.CompletedTask);
         }
-
-        private void EnsureMiddlewarePipelineIsInitialized()
+        catch (Exception exception)
         {
-            if (_pipeline is null)
-            {
-                _pipeline = BuildPipeline();
-            }
+            context.Fail(command, exception);
         }
-
-        internal async Task SendAsync(
-            KernelCommand command,
-            KernelInvocationContext context)
+        finally
         {
-            EnsureMiddlewarePipelineIsInitialized();
-
-            command.TryAddToRoutingSlip(_kernel.GetKernelUri());
-            
-            try
-            {
-                await _pipeline(command, context, (_, _) => Task.CompletedTask);
-            }
-            catch (Exception exception)
-            {
-                context.Fail(command, exception);
-            }
+            command.StampRoutingSlipAndLog(_kernel.KernelInfo.Uri);
         }
+    }
 
-        [DebuggerHidden]
-        private KernelCommandPipelineMiddleware BuildPipeline()
-        {
-            var invocations = new List<(KernelCommandPipelineMiddleware func, string name)>(_middlewares);
+    [DebuggerHidden]
+    private KernelCommandPipelineMiddleware BuildPipeline()
+    {
+        var invocations = new List<(KernelCommandPipelineMiddleware func, string name)>(_middlewares);
 
-            invocations.Add(
-                (
-                    func: async (command, context, _) => await _kernel.HandleAsync(command, context),
-                    name: $"HandleAsync({_kernel.Name})"
-                ));
+        invocations.Add(
+            (
+                func: async (command, context, _) => await _kernel.HandleAsync(command, context),
+                name: $"HandleAsync({_kernel.Name})"
+            ));
 
-            var combined =
-                invocations
-                    .Aggregate(
-                        (first, second) =>
+        var combined =
+            invocations
+                .Aggregate(
+                    (first, second) =>
+                    {
+                        return (Combine, first.name + "->" + second.name);
+
+                        async Task Combine(KernelCommand cmd1, KernelInvocationContext ctx1, KernelPipelineContinuation next)
                         {
-                            return (Combine, first.name + "->" + second.name);
-
-                            async Task Combine(KernelCommand cmd1, KernelInvocationContext ctx1, KernelPipelineContinuation next)
+                            await first.func(cmd1, ctx1, async (cmd2, ctx2) =>
                             {
-                                await first.func(cmd1, ctx1, async (cmd2, ctx2) =>
-                                {
-                                    await second.func(cmd2, ctx2, next);
-                                });
-                            }
-                        })
-                    .func;
+                                await second.func(cmd2, ctx2, next);
+                            });
+                        }
+                    })
+                .func;
 
-            return combined;
-        }
+        return combined;
+    }
 
-        public void AddMiddleware(
-            KernelCommandPipelineMiddleware middleware,
-            string caller)
-        {
-            _middlewares.Add((middleware, caller));
-            _pipeline = null;
-        }
+    public void AddMiddleware(
+        KernelCommandPipelineMiddleware middleware,
+        string caller)
+    {
+        _middlewares.Add((middleware, caller));
+        _pipeline = null;
     }
 }

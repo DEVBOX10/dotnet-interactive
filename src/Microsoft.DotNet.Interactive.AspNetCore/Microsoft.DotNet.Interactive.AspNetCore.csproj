@@ -1,7 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net7.0</TargetFramework>
     <OutputType>Library</OutputType>
   </PropertyGroup>
   
@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="PocketLogger" Version="0.4.1">
+    <PackageReference Include="PocketLogger" Version="0.8.1">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
   </ItemGroup>

@@ -3,17 +3,27 @@
 
 using Microsoft.DotNet.Interactive.Formatting;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Encodings.Web;
 
-namespace Microsoft.DotNet.Interactive.Jupyter.Messaging
+namespace Microsoft.DotNet.Interactive.Jupyter.Messaging;
+
+public static class MessageFormatter
 {
-    internal static class MessageFormatter
+    static MessageFormatter()
     {
-        static MessageFormatter()
+        SerializerOptions = new JsonSerializerOptions(JsonFormatter.SerializerOptions)
         {
-            SerializerOptions = JsonFormatter.SerializerOptions;
-            SerializerOptions.Converters.Add(new MessageConverter());
-        }
-
-        public static JsonSerializerOptions SerializerOptions { get; }
+            WriteIndented = true,
+            NumberHandling = JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.AllowNamedFloatingPointLiterals,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            ReferenceHandler = null,
+            Converters =
+            {
+                new MessageConverter()
+            }
+        };
     }
+
+    public static JsonSerializerOptions SerializerOptions { get; }
 }

@@ -3,13 +3,14 @@
   "id": "command-id",
   "commandType": "SendEditableCode",
   "command": {
-    "language": "language",
+    "kernelName": "someKernelName",
     "code": "code",
-    "targetKernelName": "vscode",
+    "targetKernelName": null,
     "originUri": null,
     "destinationUri": null
   },
   "routingSlip": [
+    "kernel://somelocation/kernelName?tag=arrived",
     "kernel://somelocation/kernelName"
   ]
 }

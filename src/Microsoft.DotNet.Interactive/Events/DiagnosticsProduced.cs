@@ -4,27 +4,35 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using Microsoft.DotNet.Interactive.Commands;
-using Microsoft.DotNet.Interactive.Extensions;
 
-namespace Microsoft.DotNet.Interactive.Events
+namespace Microsoft.DotNet.Interactive.Events;
+
+public class DiagnosticsProduced : KernelEvent
 {
-    public class DiagnosticsProduced : KernelEvent
-    {
-        private readonly IReadOnlyCollection<Diagnostic> _diagnostics;
+    private readonly IReadOnlyCollection<Diagnostic> _diagnostics;
 
-        public DiagnosticsProduced(IEnumerable<Diagnostic> diagnostics,
-            KernelCommand command,
-            IReadOnlyCollection<FormattedValue> formattedDiagnostics = null) : base(command)
+    public DiagnosticsProduced(IEnumerable<Diagnostic> diagnostics,
+        KernelCommand command,
+        IReadOnlyCollection<FormattedValue> formattedDiagnostics = null) : base(command)
+    {
+        if (diagnostics is null)
         {
-            _diagnostics = (diagnostics ?? Array.Empty<Diagnostic>()).ToImmutableList();
-            FormattedDiagnostics = formattedDiagnostics ?? Array.Empty<FormattedValue>();
+            throw new ArgumentNullException(nameof(diagnostics));
+        }
+        else if (!diagnostics.Any())
+        {
+            throw new ArgumentException("At least one diagnostic required.", nameof(diagnostics));
         }
 
-        public IReadOnlyCollection<Diagnostic> Diagnostics => this.RemapDiagnosticsFromRequestingCommand(_diagnostics);
-
-        public IReadOnlyCollection<FormattedValue> FormattedDiagnostics { get; }
-
-        public override string ToString() => $"{GetType().Name}";
+        _diagnostics = diagnostics.ToImmutableList();
+        FormattedDiagnostics = formattedDiagnostics ?? Array.Empty<FormattedValue>();
     }
+
+    public IReadOnlyCollection<Diagnostic> Diagnostics => this.RemapDiagnosticsFromRequestingCommand(_diagnostics);
+
+    public IReadOnlyCollection<FormattedValue> FormattedDiagnostics { get; }
+
+    public override string ToString() => $"{GetType().Name}";
 }

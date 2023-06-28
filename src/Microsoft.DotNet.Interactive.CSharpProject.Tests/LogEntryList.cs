@@ -3,14 +3,32 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 
-namespace Microsoft.DotNet.Interactive.CSharpProject.Tests
+namespace Microsoft.DotNet.Interactive.CSharpProject.Tests;
+
+public class LogEntryList : ConcurrentQueue<(
+    string MessageTemplate,
+    object[] Args,
+    List<(string Name, object Value)> Properties,
+    byte LogLevel,
+    DateTime TimestampUtc,
+    Exception Exception,
+    string OperationName,
+    string Category,
+    (string Id,
+    bool IsStart,
+    bool IsEnd,
+    bool? IsSuccessful,
+    TimeSpan? Duration) Operation)>
 {
-    public class LogEntryList : ConcurrentQueue<(
+    public void Add((
+        string MessageTemplate,
+        object[] Args,
+        List<(string Name, object Value)> Properties,
         byte LogLevel,
         DateTime TimestampUtc,
-        Func<(string Message, (string Name, object Value)[] Properties)> Evaluate,
         Exception Exception,
         string OperationName,
         string Category,
@@ -18,35 +36,22 @@ namespace Microsoft.DotNet.Interactive.CSharpProject.Tests
         bool IsStart,
         bool IsEnd,
         bool? IsSuccessful,
-        TimeSpan? Duration) Operation)>
-    {
-        public void Add(
-            (
-                byte LogLevel,
-                DateTime TimestampUtc,
-                Func<(string Message, (string Name, object Value)[] Properties)> Evaluate,
-                Exception Exception,
-                string OperationName,
-                string Category,
-                (string Id,
-                bool IsStart,
-                bool IsEnd,
-                bool? IsSuccessful,
-                TimeSpan? Duration) Operation) e) =>
+        TimeSpan? Duration) Operation) e) =>
             Enqueue(e);
 
-        public (
-            byte LogLevel,
-            DateTime TimestampUtc,
-            Func<(string Message, (string Name, object Value)[] Properties)> Evaluate,
-            Exception Exception,
-            string OperationName,
-            string Category,
-            (string Id,
-            bool IsStart,
-            bool IsEnd,
-            bool? IsSuccessful,
-            TimeSpan? Duration) Operation) this[int index] =>
+    public (
+        string MessageTemplate,
+        object[] Args,
+        List<(string Name, object Value)> Properties,
+        byte LogLevel,
+        DateTime TimestampUtc,
+        Exception Exception,
+        string OperationName,
+        string Category,
+        (string Id,
+        bool IsStart,
+        bool IsEnd,
+        bool? IsSuccessful,
+        TimeSpan? Duration) Operation) this[int index] =>
             this.ElementAt(index);
-    }
 }

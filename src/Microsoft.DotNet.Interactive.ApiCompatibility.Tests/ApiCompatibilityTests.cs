@@ -8,11 +8,13 @@ using Microsoft.DotNet.Interactive.CSharpProject;
 using Microsoft.DotNet.Interactive.Documents;
 using Microsoft.DotNet.Interactive.Formatting;
 using Microsoft.DotNet.Interactive.FSharp;
+using Microsoft.DotNet.Interactive.HttpRequest;
 using Microsoft.DotNet.Interactive.Journey;
 using Microsoft.DotNet.Interactive.Jupyter;
 using Microsoft.DotNet.Interactive.Kql;
 using Microsoft.DotNet.Interactive.Mermaid;
 using Microsoft.DotNet.Interactive.PowerShell;
+using Microsoft.DotNet.Interactive.SQLite;
 using Microsoft.DotNet.Interactive.SqlServer;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Xunit;
@@ -94,6 +96,13 @@ public class ApiCompatibilityTests
     }
 
     [FactSkipLinux("Testing api contract changes, not needed on Linux too")]
+    public void sqLite_api_is_not_changed()
+    {
+        var contract = ApiContract.GenerateContract<SQLiteKernelConnector>();
+        this.Assent(contract, _configuration);
+    }
+
+    [FactSkipLinux("Testing api contract changes, not needed on Linux too")]
     public void mssql_api_is_not_changed()
     {
         var contract = ApiContract.GenerateContract<MsSqlKernelConnector>();
@@ -118,6 +127,13 @@ public class ApiCompatibilityTests
     public void jupyter_api_is_not_changed()
     {
         var contract = ApiContract.GenerateContract<ConnectionInformation>();
+        this.Assent(contract, _configuration);
+    }
+
+    [FactSkipLinux("Testing api contract changes, not needed on Linux too")]
+    public void httpRequest_api_is_not_changed()
+    {
+        var contract = ApiContract.GenerateContract<HttpRequestKernel>();
         this.Assent(contract, _configuration);
     }
 }

@@ -12,11 +12,15 @@ If you would like to build `dotnet-interactive` tool and its associated librarie
 
     **N.b., using symbolic links in Windows requires the drive be formatted as NTFS.**
 
-This project depends on .NET 6.0. Before working on the project, check that the .NET prerequisites have been met:
+This project depends on .NET 7.0. Before working on the project, check that the .NET prerequisites have been met:
 
-- [Prerequisites for .NET on Windows](https://docs.microsoft.com/en-us/dotnet/core/install/windows?tabs=net60#dependencies)
-- [Prerequisites for .NET on Linux](https://docs.microsoft.com/en-us/dotnet/core/install/linux?tabs=net60#dependencies)
-- [Prerequisites for .NET on macOS](https://docs.microsoft.com/en-us/dotnet/core/install/macos?tabs=net60#dependencies)
+- [Prerequisites for .NET on Windows](https://learn.microsoft.com/en-us/dotnet/core/install/windows?tabs=net70#dependencies)
+- [Prerequisites for .NET on Linux](https://learn.microsoft.com/en-us/dotnet/core/install/linux?tabs=net70#dependencies)
+- [Prerequisites for .NET on macOS](https://learn.microsoft.com/en-us/dotnet/core/install/macos?tabs=net70#dependencies)
+
+### First build
+
+The first build must be executed on the command line (see below for details), but subsequent builds can be done directly within Visual Studio / Visual Studio Code.
 
 ### Visual Studio / Visual Studio Code
 
@@ -30,39 +34,53 @@ You can also build this project on the command line by running the following scr
 
 Windows:
 
+```console
     > .\build.cmd
+```
 
 Linux or macOS:
 
+```console
     $ ./build.sh
+```
 
 You can both build and run the tests for the project by running the scripts with the following option:
 
 Windows:
 
+```console
     > .\build.cmd -test
+```
 
 Linux or macOS:
 
+```console
     $ ./build.sh --test
+```
 
 For additional options, you can get help as follows:
 
 Windows:
 
+```console
     > .\build.cmd -help
+```
 
 Linux or macOS:
 
+```console
     $ ./build.sh --help
+```
 
 ### Install your local build
 
-To build and then install your developer build of the `dotnet-interactive` global tool, you can run the PowerShell script
+To build and then install your developer build of the `dotnet-interactive` tool, you can run the PowerShell script
 
+```console
     pwsh src/dotnet-interactive/build-and-install-dotnet-interactive.ps1
+```
 
-Powershell for .NET Core is required. This will uninstall any previous version of `dotnet-interactive` you might have installed.
+PowerShell for .NET Core is required. This will uninstall any previous version of `dotnet-interactive` you might have installed.
 
 ### Arcade build system
 
@@ -70,9 +88,9 @@ Powershell for .NET Core is required. This will uninstall any previous version o
 
 If you prefer a development environment that's more consistent with the out-of-the-box .NET experience, you can set the environment variable `DisableArcade` to `1`.
 
-## Building the Visual Studio Code extension
+## Building the Polyglot Notebooks extension for Visual Studio Code
 
-In order to build the .NET Interactive Notebooks Visual Studio Code extension, please follow the instructions below. Note that it's not necessary to use a local build of `dotnet-interactive` in order to work on the Visual Studio Code extension.
+In order to build the Polyglot Notebooks extension for Visual Studio Code, please follow the instructions below. Note that it's not necessary to use a local build of `dotnet-interactive` in order to work on the Visual Studio Code extension.
 
 ### Prerequisites
 
@@ -80,7 +98,7 @@ To get started, you'll need:
 
 1. [Visual Studio Code Insiders](https://code.visualstudio.com/insiders/).
 
-2. [.NET 6 SDK](https://dotnet.microsoft.com/download/dotnet/6.0).
+2. [.NET 7 SDK](https://dotnet.microsoft.com/en-us/download).
 
 3. The LTS version of [nodejs](https://nodejs.org/en/download/).
 
@@ -90,13 +108,13 @@ To get started, you'll need:
 
 2. Follow the regular build instructions as given above.
 
-3. Open the `<REPO-ROOT>/src/dotnet-interactive-vscode-insiders` directory in Visual Studio Code Insiders. (From your terminal, you can run `code-insiders <REPO-ROOT>/src/dotnet-interactive-vscode-insiders`.)
+3. Open the `<REPO-ROOT>/src/polyglot-notebooks-vscode-insiders` directory in Visual Studio Code Insiders. (From your terminal, you can run `code-insiders <REPO-ROOT>/src/polyglot-notebooks-vscode-insiders`.)
 
 4. Make the desired source code changes.
 
 5. Press F5 to launch the Visual Studio Code Extension Development Host.
 
-6. Run `.NET Interactive: Create new blank notebook` or open a file with the `.ipynb` extension.
+6. Run `Polyglot Notebook: Create new blank notebook` or open a file with the `.ipynb` extension.
 
 ### Use a local build of the `dotnet-interactive` tool
 
@@ -110,10 +128,10 @@ If you've made changes to `dotnet-interactive` and want to try them out with Vis
 
    b. In the file that opens, add the following:
 
-      ```js
+      ```json
         "dotnet-interactive.kernelTransportArgs": [
             "{dotnet_path}",
-            "/PATH/TO/REPO/ROOT/artifacts/bin/dotnet-interactive/Debug/net6.0/Microsoft.DotNet.Interactive.App.dll",
+            "/PATH/TO/REPO/ROOT/artifacts/bin/dotnet-interactive/Debug/net7.0/Microsoft.DotNet.Interactive.App.dll",
             "[vscode]",
             "stdio",
             "--log-path",
@@ -125,7 +143,7 @@ If you've made changes to `dotnet-interactive` and want to try them out with Vis
 
         "dotnet-interactive.notebookParserArgs": [
             "{dotnet_path}",
-            "/PATH/TO/REPO/ROOT/artifacts/bin/dotnet-interactive/Debug/net6.0/Microsoft.DotNet.Interactive.App.dll",
+            "/PATH/TO/REPO/ROOT/artifacts/bin/dotnet-interactive/Debug/net7.0/Microsoft.DotNet.Interactive.App.dll",
             "notebook-parser"
         ]
       ```
@@ -136,27 +154,27 @@ If you've made changes to `dotnet-interactive` and want to try them out with Vis
 
 5. To revert back to the original settings, delete the settings added in step 2 above and restart VS Code.
 
-### Use a local build of a `dotnet-interactive` extension
+### Use a local build of a Polyglot Notebooks extension
 
-If you've made changes to one of the `dotnet-interactive` extensions and want to use them locally, follow these steps:
+If you've made changes to one of the Polyglot Notebooks extensions and want to use them locally, follow these steps:
 
 1. Run `build.cmd -pack`/`./build.sh --pack` to create the Nuget packages for the extensions
 
 2. Ensure that there aren't any kernels running for the extension in question. It's generally best to close all Notebooks opened in VS Code to accomplish this.
 
-3. Run the `.NET Interactive: Create a new blank notebook` command in VS Code. Select `.dib` or `.ipynb` as the extension and any language as default.
+3. Run the `Polyglot Notebook: Create a new blank notebook` command in VS Code. Select `.dib` or `.ipynb` as the extension and any language as default.
 
-4. Save the Notebook anywhere you like
+4. Save the notebook anywhere you like
 
-5. Run the `.NET Interactive: Restart the current Notebook's kernel` command
+5. Run the `Polyglot Notebook: Restart the current Notebook's kernel` command
 
 6. In the first code cell, paste this code
    - In the FolderName, give the path to the nuget cache. This should be `%userprofile%\.nuget\packages` on Windows and `~/.nuget/packages` on Mac/Linux
    - Also replace `EXTENSIONNAME` with the name of the extension (e.g. `microsoft.dotnet.interactive.sqlserver`)
-   - On the #i line, fill in the path to the `dotnet-interactive` repo root
-   - On the #r line, use the same `EXTENSIONNAME` above, and then look in the `artifacts\packages\Debug\Shipping` folder for the package you're using and get the version number from the name. e.g. a package named `Microsoft.DotNet.Interactive.SqlServer.1.0.0-dev.nupkg` would result in this line `#r "nuget: Microsoft.DotNet.Interactive.SqlServer, 1.0.0-dev"`
+   - On the `#i` line, fill in the path to the `dotnet-interactive` repo root
+   - On the `#r` line, use the same `EXTENSIONNAME` above, and then look in the `artifacts\packages\Debug\Shipping` folder for the package you're using and get the version number from the name. e.g. a package named `Microsoft.DotNet.Interactive.SqlServer.1.0.0-dev.nupkg` would result in this line `#r "nuget: Microsoft.DotNet.Interactive.SqlServer, 1.0.0-dev"`
 
-```text
+```powershell
 #!powershell
 
 $FolderName = "\PATH\TO\NUGET\CACHE\packages\microsoft.dotnet.interactive.<EXTENSIONNAME>"
@@ -178,4 +196,51 @@ else
 
 7. Run the cell
    - If you get an error about access being denied, ensure that all other Notebooks are closed and then restart the kernel again as in step 5
+
 8. Now, use the kernel as you normally would. You should see your local changes being used by the extension.
+
+
+### Setup full suite of tests to run
+
+Some tests require additional setup or will be skipped. `JupyterKernel` tests for e.g. are setup to have the same test run against a Jupyter server, directly against the Jupyter kernel over ZMQ and with a simulation of the messages. Jupyter server and Jupyter kernel tests require the following setup or will be skipped while the tests with simulation can be run without additional steps. 
+
+### Run tests with a local Jupyter Server
+
+1. Install [Jupyter server](https://docs.jupyter.org/en/latest/install.html) or [Anaconda](https://www.anaconda.com/products/distribution)
+2. [Install R kernel](https://docs.anaconda.com/anaconda/user-guide/tasks/using-r-language/) for R tests by calling the following in Anaconda Prompt (Windows) or the terminal (Mac/Linux)
+```
+conda install -c r r-irkernel
+```
+3. Start the server locally as mentioned [here](https://docs.jupyter.org/en/latest/running.html). You can use any random string or guid for your_token value.
+```
+jupyter notebook --no-browser --NotebookApp.token=<your_token> --port=8888
+```
+4. Set an environment variable `TEST_DOTNET_JUPYTER_HTTP_CONN` pointing to the server and the token you are using for the Jupyter server as 
+```
+--url http://localhost:8888 --token <your_token>
+```
+5. The tests will now use the environment variable to connect to your server. 
+
+### Run tests with a Jupyter Kernel over ZMQ
+
+1. Install [Anaconda](https://www.anaconda.com/products/distribution)
+2. [Install R kernel](https://docs.anaconda.com/anaconda/user-guide/tasks/using-r-language/) for R tests by calling the following in Anaconda Prompt (Windows) or the terminal (Mac/Linux) 
+```
+conda install -c r r-irkernel
+```
+3. Start Anaconda Bash prompt and create an environment variable `TEST_DOTNET_JUPYTER_ZMQ_CONN` and set to `true` and reactivate your conda environment
+```bash
+conda env config vars set TEST_DOTNET_JUPYTER_ZMQ_CONN=true 
+conda activate base
+```
+3. Restart `dotnet-interactive.sln` from the Anaconda Bash prompt. 
+4. The tests will now use the environment variable to connect to your server. 
+
+### Run tests directly against the language handler scripts
+
+These tests can be run directly against the language handler scripts. This is useful for when making changes on the scripts sent to the jupyter kernel without needing a full integration.
+
+1. Python tests can be run directly in the Anaconda Prompt with IPython by calling `src\Microsoft.DotNet.Interactive.Jupyter.Tests\LanguageHandlerTests\run_python_tests.bat`
+2. R tests can be run directly in the Anaconda Prompt with RScript by calling `src\Microsoft.DotNet.Interactive.Jupyter.Tests\LanguageHandlerTests\run_r_tests.bat`
+3. Both Python and R tests can be run together in the Anaconda Prompt by calling `src\Microsoft.DotNet.Interactive.Jupyter.Tests\LanguageHandlerTests\run_tests.bat`
+

@@ -1,20 +1,10 @@
-# Using .NET notebooks with Jupyter Notebook / JupyterLab
+# Using .NET Interactive with Jupyter 
 
-To use the .NET Interactive kernel for your multi-language notebooks in Jupyter or JupyterLab, you need to first install the .NET Interactive kernel.  
+To use the .NET Interactive kernel for your multi-language notebooks in Jupyter Notebook, JupyterLab, and other Jupyter frontends, you first need to register .NET Interactive as a kernel with Jupyter.  
 
-* Install .NET Interactive as a Jupyter kernel for use with Jupyter Notebook, JupyterLab, nteract, and others.
+Make sure you have the following installed:
 
-or 
-
-* Install the [Polyglot Notebooks extension](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.dotnet-interactive-vscode)
-
-Both of these methods can read and write `.ipynb` files, which are fully portable between them.
-
-## Installing .NET Interactive as a Jupyter kernel
-
-First, make sure you have the following installed:
-
-* The [.NET 6 SDK](https://dotnet.microsoft.com/download/dotnet/6.0).
+* The [.NET 7 SDK](https://dotnet.microsoft.com/en-us/download).
 * **Jupyter**. An easy way to install Jupyter is through [Anaconda](https://www.anaconda.com/distribution).
 
 * You can verify the installations by opening the **Anaconda Prompt** (Windows) or a terminal (macOS, Linux) and running the following commands to ensure that Jupyter and .NET are installed and present on the path:
@@ -23,10 +13,10 @@ First, make sure you have the following installed:
 > jupyter kernelspec list
   python3        ~\jupyter\kernels\python3
 > dotnet --version
-  6.0.100
+  7.0.200
 ```
 
-(The minor version isn't important.)
+(The `dotnet` minor version isn't important.)
 
 * Next, in an **ordinary console**, install the `dotnet interactive` global tool:
 
@@ -34,7 +24,7 @@ First, make sure you have the following installed:
 > dotnet tool install -g Microsoft.dotnet-interactive
 ```
 
-* **Switch back to your Anaconda prompt** and install the .NET kernel by running the following:
+* **Switch back to your Anaconda prompt** and install the .NET kernel by running `dotnet interactive jupyter install`:
 
 ```console
 > dotnet interactive jupyter install
@@ -58,7 +48,7 @@ Installed ".NET (PowerShell)" kernel.
 
 ## Updating .NET Interactive
 
-To update to the latest version of .NET Interactive open an **ordinary console** and run the following code: 
+To update to the latest version of .NET Interactive, open an **ordinary console** and run the following code: 
 
 ```console
 > dotnet tool update -g Microsoft.dotnet-interactive
@@ -71,7 +61,3 @@ To launch Jupyter, you can run either `jupyter lab` or `jupyter notebook` from y
 Once Jupyter has launched in your browser, you have the option to create notebooks using C#, F#, or PowerShell.
 
 <img src = "https://user-images.githubusercontent.com/547415/78056370-ddd0cc00-7339-11ea-9379-c40f8b5c1ae5.png" width = "70%">
-
-For more information on the .NET notebook experience, please check out our samples and documentation on [Binder](https://mybinder.org/v2/gh/dotnet/interactive/main?urlpath=lab) or in this repo under [`docs`](../docs/README.md) and [`samples`](../samples/readme.md).
-
-Once you've created a .NET notebook, you might want to share it with others. In the [next document](CreateBinder.md), you will learn how to share your .NET notebook with others using Binder. 

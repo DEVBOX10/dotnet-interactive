@@ -5,7 +5,8 @@
   "command": {
     "formattedValue": {
       "mimeType": "text/html",
-      "value": "\u003Cb\u003Ehi!\u003C/b\u003E"
+      "value": "<b>hi!</b>",
+      "suppressDisplay": false
     },
     "valueId": "the-value-id",
     "targetKernelName": null,
@@ -13,6 +14,7 @@
     "destinationUri": null
   },
   "routingSlip": [
+    "kernel://somelocation/kernelName?tag=arrived",
     "kernel://somelocation/kernelName"
   ]
 }

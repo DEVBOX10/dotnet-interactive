@@ -1,122 +1,89 @@
+# .NET Interactive
 
-# .NET Interactive <img src ="https://user-images.githubusercontent.com/2546640/56708992-deee8780-66ec-11e9-9991-eb85abb1d10a.png" width="80px" alt="dotnet bot in space" align ="right">
+## What is .NET Interactive?
 
-[![Discord](https://img.shields.io/discord/732297728826277939?label=discord)](https://discord.gg/3pvut9YujN) [![Build Status](https://dev.azure.com/dnceng-public/public/_apis/build/status/dotnet/interactive/interactive-ci?branchName=main)](https://dev.azure.com/dnceng-public/public/_build?definitionId=71&branchName=main) [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/dotnet/interactive/main?urlpath=lab) 
+.NET Interactive is an engine and API for running and editing code interactively, including:
 
-.NET Interactive takes the power of .NET and embeds it into various interactive experiences. Share code, explore data, write, and learn across your apps in ways you couldn't before.
+* Running code and getting its results.
+* Evaluating code to provide language services such as completions and diagnostics.
+* Sharing data and variables between multiple languages and across remote machines.
 
-* [Notebooks](#notebooks-with-net): Jupyter, nteract, and Visual Studio Code 
-* [Code bots](https://github.com/CodeConversations/CodeConversations)
-* Devices like [Raspberry Pi](https://www.raspberrypi.org/)
-* Embeddable script engines
-* [REPLs](https://github.com/jonsequitur/dotnet-repl)
+While typically associated with notebook technologies such as Jupyter and the [Polyglot Notebooks extension for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.dotnet-interactive-vscode), .NET Interactive has other uses as well, such as building REPLs and embedded script engines.
 
-*.NET Interactive IS .NET UNLEASHED*
+The following languages are supported by Polyglot Notebooks and .NET Interactive:
 
-# Notebooks with .NET
+| Language                      | Variable sharing |
+|-------------------------------|------------------|
+| C#                            |        ✅       |
+| F#                            |        ✅       |   
+| PowerShell                    |        ✅       |          
+| JavaScript                    |        ✅       |          
+| SQL                           |        ✅       |   
+| KQL ([Kusto Query Language](https://learn.microsoft.com/en-us/azure/data-explorer/kusto/query/))    |        ✅       |  
+| [Python](docs/jupyter-in-polyglot-notebooks.md)   |        ✅       |
+| [R](docs/jupyter-in-polyglot-notebooks.md)   |        ✅       |      
+| HTML*                         |        ⛔       |     
+| [Mermaid](https://mermaid.js.org/intro/)*                      |        ⛔       |        
 
-## Visual Studio Code
+### Polyglot Notebooks
 
-The [.NET Interactive Notebooks](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.dotnet-interactive-vscode) extension for Visual Studio Code brings support for polyglot notebooks to Visual Studio Code, powered by .NET Interactive. We encourage you to [try it out](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.dotnet-interactive-vscode). If you'd like to contribute, you can start [here](CONTRIBUTING.md). 
+Since .NET Interactive is capable of running as a kernel for notebooks, it enables a polyglot (multi-language) notebook experience. When using the .NET Interactive kernel, you can use different languages from one cell to the next, share variables between languages, and dynamically connect new languages and remote kernels within a notebook. There's no need to install different Jupyter kernels, use wrapper libraries, or install different tools to get the best experience for the language of your choice. You can always use the best language for the job and seamlessly transition between different stages of your workflow, all within one notebook.
 
-![newnotebook](https://user-images.githubusercontent.com/2546640/130660742-deb5c33b-020d-4d03-8034-7f11532c3201.gif)
+For the best experience when working with multi-language notebooks, we recommend installing the [Polyglot Notebooks](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.dotnet-interactive-vscode) extension for Visual Studio Code. While the full .NET Interactive feature set is available in Jupyter, many features are only usable via code, whereas the Polyglot Notebooks extension provides additional features including a language/kernel picker for each cell, enhanced language services, a multi-kernel variable viewer, and more.
 
----
+### Jupyter
 
-## Features
-### Polyglot notebooks 
-.NET Interactive enables users to mix languages in a single notebook or cell without a wrapper. The multi-language experience enables users to use the best language for the task at hand.
+The most popular notebook platform is Jupyter, and .NET Interactive is a fully supported Jupyter kernel that you can use with Jupyter Notebook, JupyterLab, nteract, and other Jupyter frontends. You can read more about using .NET Interactive as a Jupyter kernel [here](docs/NotebookswithJupyter.md).
 
-**Languages supported**
-- C# and F# 
-- PowerShell, built in collaboration with the PowerShell team 💙
-- JavaScript
-- HTML 
-- [Mermaid](https://mermaid-js.github.io/mermaid/#/)
-- SQL and KQL (Kusto), built in collaboration with the  Azure Data / SQL team 💙
+### REPLs
 
-**What languages are we exploring?** 
-- Python, Julia, and R 
+.NET Interactive can be used as the execution engine for REPLs as well. The experimental [.NET REPL](https://github.com/jonsequitur/dotnet-repl) is one example of a command line REPL built on .NET Interactive. In addition, .NET REPL can be used for automated command line execution of notebooks.
 
-### Variable Sharing 
+### Small factor devices
 
-.NET Interactive enables you to write code in multiple languages within a single notebook and in order to take advantage of those languages' different strengths, you might find it useful to share data between them. Read more [here](https://github.com/dotnet/interactive/blob/main/docs/variable-sharing.md).
+We support running on devices like Raspberry Pi and [pi-top [4]](https://github.com/pi-top/pi-top-4-.NET-Core-API). You can find instructions [here](docs/small-factor-devices.md).
 
-![Notebooks-variable-sharing](https://user-images.githubusercontent.com/2546640/130664292-1cdfb806-a6f6-4874-bcad-a5eb4517a925.gif)
+## FAQ
 
-The gif above showcases the following:
-- Variable sharing across C#, HTML and JavaScript cells.
-- Multi-language cells.
+For more information, please refer to our [FAQ](./docs/FAQ.md). 
 
-For more examples on multi-language notebooks and variable sharing check out our [polyglot samples](https://github.com/dotnet/interactive/tree/main/samples/notebooks/polyglot).
+## Acknowledgements 
 
-### Visualization 
+The multi-language experience of .NET Interactive is truly a collaborative effort among different teams at Microsoft and in the community. We'd like to thank the following teams for contributing their time and expertise to helping bring support for other languages:
 
-**Low code visualization**
+- **PowerShell Team:** PowerShell support
+- **Azure Data Team:** SQL and KQL support
+- **Azure Notebooks Team**: Python, R, and Jupyter subkernel support (coming soon...)
 
-In just a single line of code easily visualize data with Microsoft SandDance and [nteract DataExplorer](https://data-explorer.nteract.io/). For  example the code snippet below will render an interactive [Microsoft SandDance](https://www.microsoft.com/en-us/research/project/sanddance/).
-```csharp
-housingData.ExploreWithSandDance().Display();
+## Telemetry
+
+Telemetry is collected when the `dotnet-interactive` tool is started. (If you are using the .NET Interactive libraries directly, they do not emit telemetry.) Once `dotnet-interactive` is running, it emits the names of packages imported into the notebook and the languages used to run individual cells. This data is hashed, allowing us to count unique values, but the pre-hashed values cannot be obtained from the telemetry. We do not collect any additional code or clear text from cells. All telemetry is anonymous. In addition, `dotnet-interactive` reports the usage for a specific subset of the verbs in the .NET Interactive CLI. Those verbs are:
+
+* `dotnet interactive jupyter`
+* `dotnet interactive jupyter install`
+* `dotnet interactive stdio` 
+
+### How to opt out
+
+The .NET Interactive telemetry feature is enabled by default. To opt out of the telemetry feature, set the `DOTNET_INTERACTIVE_CLI_TELEMETRY_OPTOUT` environment variable to `1` or `true`.
+
+### Disclosure
+
+The .NET Interactive tool displays text similar to the following when you first run one of the .NET Interactive CLI commands (for example, `dotnet interactive jupyter install`). Text may vary slightly depending on the version of the tool you're running. This "first run" experience is how Microsoft notifies you about data collection.
+
+```console
+Telemetry
+---------
+The .NET Core tools collect usage data in order to help us improve your experience.The data is anonymous and doesn't include command-line arguments. The data is collected by Microsoft and shared with the community. You can opt-out of telemetry by setting the DOTNET_INTERACTIVE_CLI_TELEMETRY_OPTOUT environment variable to '1' or 'true' using your favorite shell.
 ```
 
-![low-code-visualization](https://user-images.githubusercontent.com/2546640/130510820-6a5b5f9d-a0cc-4fef-8a3d-ea741a30d7f8.gif)
-
-For more [low code visualization](https://github.com/dotnet/interactive/tree/main/samples/ExtensionLab) examples, check out our samples.
-
-**Works with your favorite visualization libraries**
-
-![d3js](https://user-images.githubusercontent.com/2546640/130669124-09f11de8-e324-4c2e-bdbc-c49fd85511c2.gif)
-
-The image below showcases the following: 
-
-- `C#` cell: Define a variable in C#
-- `JavaScript` cell: Use RequireJS to import d3.js
-- `HTML cell`:  Visualize the data
-
-Full example [here](https://github.com/dotnet/interactive/blob/main/samples/notebooks/polyglot/d3js.ipynb).
-
-----
-
-## Jupyter and nteract
-
-[Project Jupyter](https://jupyter.org/) is a popular platform for creating interactive notebooks that can be used for data science, documentation, DevOps, and much more.
-
-<img src="https://user-images.githubusercontent.com/547415/78056370-ddd0cc00-7339-11ea-9379-c40f8b5c1ae5.png" width="70%">
-<img src="https://user-images.githubusercontent.com/2546640/67912370-1b99b080-fb60-11e9-9839-0058d02488cf.png" width="70%">
-
-There are several ways to get started using .NET with Jupyter, including Jupyter Notebook, JupyterLab, and nteract.
-
-- [Try sample .NET notebooks online using Binder](docs/NotebooksOnBinder.md). This also allows you try out our daily builds, including preview features.
-- [Install .NET Interactive](docs/NotebookswithJupyter.md) to create and run .NET notebooks on your machine.
-- [Share your own .NET notebooks with others online using Binder](docs/CreateBinder.md).
-- [Use .NET Interactive with nteract](https://nteract.io/kernels/dotnet)
-- [Use .NET Interactive on Raspberry Pi and pi-top](docs/small-factor-devices.md)
-
-## Documentation
-
-You can find additional documentation [here](./docs/README.md).
-
-## Packages
-
-We provide a number of packages that can be used to write custom [extensions](./docs/extending-dotnet-interactive.md) for .NET Interactive or to build your own interactive experiences.
-
-Package                                    | Version                                                                                                                                                         | Description
-:------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|:------------
-`Microsoft.dotnet-interactive`             | [![Nuget](https://img.shields.io/nuget/v/Microsoft.dotnet-interactive.svg)](https://www.nuget.org/packages/Microsoft.dotnet-interactive)                        | The `dotnet-interactive` global tool
-`Microsoft.DotNet.Interactive`             | [![Nuget](https://img.shields.io/nuget/v/Microsoft.DotNet.Interactive.svg)](https://www.nuget.org/packages/Microsoft.DotNet.Interactive)                        | Core types for building applications providing interactive programming for .NET.
-`Microsoft.DotNet.Interactive.Formatting`  | [![Nuget](https://img.shields.io/nuget/v/Microsoft.DotNet.Interactive.Formatting.svg)](https://www.nuget.org/packages/Microsoft.DotNet.Interactive.Formatting)  | Convention-based and highly configurable .NET object formatting for interactive programming, including support for mime types suitable for building visualizations for Jupyter Notebooks and web browsers.
-`Microsoft.DotNet.Interactive.FSharp`      | [![Nuget](https://img.shields.io/nuget/v/Microsoft.DotNet.Interactive.FSharp.svg)](https://www.nuget.org/packages/Microsoft.DotNet.Interactive.FSharp)          | Microsoft.DotNet.Interactive.Kernel implementation for F#
-`Microsoft.DotNet.Interactive.CSharp`      | [![Nuget](https://img.shields.io/nuget/v/Microsoft.DotNet.Interactive.CSharp.svg)](https://www.nuget.org/packages/Microsoft.DotNet.Interactive.CSharp)          | Microsoft.DotNet.Interactive.Kernel implementation for C#
-`Microsoft.DotNet.Interactive.PowerShell`      | [![Nuget](https://img.shields.io/nuget/v/Microsoft.DotNet.Interactive.PowerShell.svg)](https://www.nuget.org/packages/Microsoft.DotNet.Interactive.PowerShell)          | Microsoft.DotNet.Interactive.Kernel implementation for PowerShell
+To disable this message and the .NET Core welcome message, set the `DOTNET_INTERACTIVE_SKIP_FIRST_TIME_EXPERIENCE` environment variable to `true`. Note that this variable has no effect on telemetry opt out.
 
 ## Contribution Guidelines
 
 You can contribute to .NET Interactive with issues and pull requests. Simply filing issues for problems you encounter is a great way to contribute. Contributing code improvements is greatly appreciated. You can read more about our contribution guidelines [here](CONTRIBUTING.md).
 
-## Customers & Partners
 
-|    [Azure Synapse Analytics ](https://azure.microsoft.com/en-us/services/synapse-analytics/)   |Azure HDInsight (HDI)  |
-|:-------------:|:-------------:|
-| Azure Synapse Analytics uses the .NET kernel to write and run quick ad-hoc queries in addition to developing complete, end-to-end big data scenarios, such as reading in data, transforming it, and visualizing it|You can launch Jupyter notebooks from your HDInsight cluster to run big data queries against the compute resources in that cluster. 
+
 
 

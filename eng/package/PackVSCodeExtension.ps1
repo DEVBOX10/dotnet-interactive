@@ -1,7 +1,6 @@
 [CmdletBinding(PositionalBinding = $false)]
 param (
     [string]$stableToolVersionNumber,
-    [string]$gitSha,
     [string]$outDir
 )
 
@@ -14,12 +13,11 @@ function Build-VsCodeExtension([string] $packageDirectory, [string] $outputSubDi
     $packageJsonPath = Join-Path (Get-Location) "package.json"
     $packageJsonContents = ReadJson -packageJsonPath $packageJsonPath
     SetNpmVersionNumber -packageJsonContents $packageJsonContents -packageVersionNumber $packageVersionNumber
-    AddGitShaToDescription -packageJsonContents $packageJsonContents -gitSha $gitSha
 
     # set tool version
     if ($kernelVersionNumber -Ne "") {
         Write-Host "Setting tool version to $kernelVersionNumber"
-        $packageJsonContents.contributes.configuration.properties."dotnet-interactive.minimumInteractiveToolVersion"."default" = $kernelVersionNumber
+        $packageJsonContents.contributes.configuration.properties."dotnet-interactive.requiredInteractiveToolVersion"."default" = $kernelVersionNumber
     }
 
     SaveJson -packageJsonPath $packagejsonPath -packageJsonContents $packageJsonContents
@@ -46,9 +44,9 @@ try {
 
     $stablePackageVersion = "${stableToolVersionNumber}0"
     $insidersPackageVersion = "${stableToolVersionNumber}1"
-    Build-VsCodeExtension -packageDirectory "dotnet-interactive-vscode" -outputSubDirectory "stable-locked" -packageVersionNumber $stablePackageVersion
-    Build-VsCodeExtension -packageDirectory "dotnet-interactive-vscode" -outputSubDirectory "stable" -packageVersionNumber $stablePackageVersion -kernelVersionNumber $stableToolVersionNumber
-    Build-VsCodeExtension -packageDirectory "dotnet-interactive-vscode-insiders" -outputSubDirectory "insiders" -packageVersionNumber $insidersPackageVersion -kernelVersionNumber $stableToolVersionNumber
+    Build-VsCodeExtension -packageDirectory "polyglot-notebooks-vscode" -outputSubDirectory "stable-locked" -packageVersionNumber $stablePackageVersion
+    Build-VsCodeExtension -packageDirectory "polyglot-notebooks-vscode" -outputSubDirectory "stable" -packageVersionNumber $stablePackageVersion -kernelVersionNumber $stableToolVersionNumber
+    Build-VsCodeExtension -packageDirectory "polyglot-notebooks-vscode-insiders" -outputSubDirectory "insiders" -packageVersionNumber $insidersPackageVersion -kernelVersionNumber $stableToolVersionNumber
 }
 catch {
     Write-Host $_

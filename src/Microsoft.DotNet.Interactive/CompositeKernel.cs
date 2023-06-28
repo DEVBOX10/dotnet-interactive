@@ -9,328 +9,268 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.NamingConventionBinder;
 using System.CommandLine.Parsing;
-using System.IO;
 using System.Linq;
-using System.Reactive.Linq;
 using System.Threading.Tasks;
 
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.Connection;
 using Microsoft.DotNet.Interactive.Events;
-using Microsoft.DotNet.Interactive.Extensions;
 using Microsoft.DotNet.Interactive.Parsing;
 
-namespace Microsoft.DotNet.Interactive
+namespace Microsoft.DotNet.Interactive;
+
+public sealed class CompositeKernel :
+    Kernel,
+    IEnumerable<Kernel>
 {
-    public sealed class CompositeKernel :
-        Kernel,
-        IExtensibleKernel,
-        IEnumerable<Kernel>
+    private readonly KernelCollection _childKernels;
+    private string _defaultKernelName;
+    private Command _connectDirective;
+    private KernelHost _host;
+    private readonly ConcurrentDictionary<Type, string> _defaultKernelNamesByCommandType = new();
+
+    public CompositeKernel(string name = null) : base(name ?? ".NET")
     {
-        private readonly ConcurrentQueue<PackageAdded> _packagesToCheckForExtensions = new();
-        private readonly KernelCollection _childKernels;
-        private readonly AssemblyBasedExtensionLoader _extensionLoader = new();
-        private readonly ScriptBasedExtensionLoader _scriptExtensionLoader = new();
-        private string _defaultKernelName;
-        private Command _connectDirective;
-        private KernelHost _host;
-        private readonly ConcurrentDictionary<Type, string> _defaultKernelNamesByCommandType = new();
+        KernelInfo.IsComposite = true;
+        _childKernels = new(this);
+    }
 
-        public CompositeKernel(string name = null) : base(name ?? ".NET")
+    public string DefaultKernelName
+    {
+        get => _defaultKernelName ??
+               (ChildKernels.Count == 1
+                   ? ChildKernels.Single().Name
+                   : null);
+        set => _defaultKernelName = value;
+    }
+
+    public void Add(Kernel kernel, IEnumerable<string> aliases = null)
+    {
+        if (kernel is null)
         {
-            _childKernels = new(this);
-
-            ListenForPackagesToScanForExtensions();
+            throw new ArgumentNullException(nameof(kernel));
         }
 
-        private void ListenForPackagesToScanForExtensions() =>
-            RegisterForDisposal(KernelEvents
-                                .OfType<PackageAdded>()
-                                .Where(pa => pa?.PackageReference.PackageRoot is not null)
-                                .Distinct(pa => pa.PackageReference.PackageRoot)
-                                .Subscribe(added => _packagesToCheckForExtensions.Enqueue(added)));
-
-        public string DefaultKernelName
+        if (kernel.ParentKernel is not null)
         {
-            get => _defaultKernelName ??
-                   (ChildKernels.Count == 1
-                        ? ChildKernels.Single().Name
-                        : null);
-            set => _defaultKernelName = value;
+            throw new InvalidOperationException($"Kernel \"{kernel.Name}\" already has a parent: \"{kernel.ParentKernel.Name}\".");
         }
 
-        public void Add(Kernel kernel, IEnumerable<string> aliases = null)
+        if (kernel is CompositeKernel)
         {
-            if (kernel is null)
-            {
-                throw new ArgumentNullException(nameof(kernel));
-            }
-
-            if (kernel.ParentKernel is not null)
-            {
-                throw new InvalidOperationException($"Kernel \"{kernel.Name}\" already has a parent: \"{kernel.ParentKernel.Name}\".");
-            }
-
-            if (kernel is CompositeKernel)
-            {
-                throw new ArgumentException($"{nameof(CompositeKernel)} cannot be added as a child kernel.", nameof(kernel));
-            }
-
-            kernel.ParentKernel = this;
-            kernel.RootKernel = RootKernel;
-
-            kernel.AddMiddleware(LoadExtensions);
-            kernel.SetScheduler(Scheduler);
-
-            if (aliases is not null)
-            {
-                kernel.KernelInfo.NameAndAliases.UnionWith(aliases);
-            }
-
-            AddChooseKernelDirective(kernel);
-
-            _childKernels.Add(kernel);
-
-            RegisterForDisposal(kernel.KernelEvents.Subscribe(PublishEvent));
-            RegisterForDisposal(kernel);
-            
-            if (KernelInvocationContext.Current is { } current)
-            {
-                var kernelInfoProduced = new KernelInfoProduced(kernel.KernelInfo, current.Command);
-                current.Publish(kernelInfoProduced);
-            }
-            else
-            {
-                var kernelInfoProduced = new KernelInfoProduced(kernel.KernelInfo, KernelCommand.None);
-                PublishEvent(kernelInfoProduced);
-            }
+            throw new ArgumentException($"{nameof(CompositeKernel)} cannot be added as a child kernel.", nameof(kernel));
         }
 
-        public void SetDefaultTargetKernelNameForCommand(
-            Type commandType,
-            string kernelName)
+        kernel.ParentKernel = this;
+        kernel.RootKernel = RootKernel;
+
+        kernel.SetScheduler(Scheduler);
+
+        if (aliases is not null)
         {
-            _defaultKernelNamesByCommandType[commandType] = kernelName;
+            kernel.KernelInfo.NameAndAliases.UnionWith(aliases);
         }
 
-        private void AddChooseKernelDirective(Kernel kernel)
+        AddChooseKernelDirective(kernel);
+
+        _childKernels.Add(kernel);
+
+        RegisterForDisposal(kernel.KernelEvents.Subscribe(PublishEvent));
+        RegisterForDisposal(kernel);
+
+        if (KernelInvocationContext.Current is { } current)
         {
-            var chooseKernelCommand = kernel.ChooseKernelDirective;
+            var kernelInfoProduced = new KernelInfoProduced(kernel.KernelInfo, current.Command);
+            current.Publish(kernelInfoProduced);
+        }
+        else
+        {
+            var kernelInfoProduced = new KernelInfoProduced(kernel.KernelInfo, KernelCommand.None);
+            PublishEvent(kernelInfoProduced);
+        }
+    }
 
-            foreach (var alias in kernel.KernelInfo.Aliases)
-            {
-                chooseKernelCommand.AddAlias($"#!{alias}");
-            }
+    public void SetDefaultTargetKernelNameForCommand(
+        Type commandType,
+        string kernelName)
+    {
+        _defaultKernelNamesByCommandType[commandType] = kernelName;
+    }
 
-            AddDirective(chooseKernelCommand);
+    private void AddChooseKernelDirective(Kernel kernel)
+    {
+        var chooseKernelCommand = kernel.ChooseKernelDirective;
+
+        foreach (var alias in kernel.KernelInfo.Aliases)
+        {
+            chooseKernelCommand.AddAlias($"#!{alias}");
         }
 
-        private async Task LoadExtensions(
-            KernelCommand command,
-            KernelInvocationContext context,
-            KernelPipelineContinuation next)
+        AddDirective(chooseKernelCommand);
+    }
+
+    public KernelCollection ChildKernels => _childKernels;
+
+    protected override void SetHandlingKernel(KernelCommand command, KernelInvocationContext context)
+    {
+        context.HandlingKernel = GetHandlingKernel(command, context);
+    }
+
+    private protected override Kernel GetHandlingKernel(
+        KernelCommand command,
+        KernelInvocationContext context)
+    {
+        Kernel kernel;
+
+        if (command.DestinationUri is not null)
         {
-            await next(command, context);
-
-            while (_packagesToCheckForExtensions.TryDequeue(out var packageAdded))
+            if (_childKernels.TryGetByUri(command.DestinationUri, out kernel))
             {
-                var packageRootDir = packageAdded.PackageReference.PackageRoot;
-
-                var extensionDir =
-                    new DirectoryInfo
-                    (Path.Combine(
-                        packageRootDir,
-                        "interactive-extensions",
-                        "dotnet"));
-
-                if (extensionDir.Exists)
-                {
-                    await LoadExtensionsFromDirectoryAsync(
-                        extensionDir,
-                        context);
-                }
+                return kernel;
             }
         }
 
-        public KernelCollection ChildKernels => _childKernels;
+        var targetKernelName = command.TargetKernelName;
 
-        protected override void SetHandlingKernel(KernelCommand command, KernelInvocationContext context)
+        if (targetKernelName is null)
         {
-            context.HandlingKernel = GetHandlingKernel(command, context);
-        }
-
-        private protected override Kernel GetHandlingKernel(
-            KernelCommand command,
-            KernelInvocationContext context)
-        {
-            Kernel kernel;
-
-            if (command.DestinationUri is not null)
-            {
-                if (_childKernels.TryGetByUri(command.DestinationUri, out kernel))
-                {
-                    return kernel;
-                }
-            }
-
-            var targetKernelName = command.TargetKernelName;
-
-            if (targetKernelName is null)
-            {
-                if (CanHandle(command))
-                {
-                    return this;
-                }
-                else if (_defaultKernelNamesByCommandType.TryGetValue(command.GetType(), out targetKernelName))
-                {
-
-                }
-                else 
-                {
-
-                    targetKernelName = DefaultKernelName;
-                }
-            }
-
-            if (targetKernelName is not null)
-            {
-                if (_childKernels.TryGetByAlias(targetKernelName, out kernel))
-                {
-                    return kernel;
-                }
-            }
-
-            kernel = _childKernels.Count switch
-            {
-                0 => null,
-                1 => _childKernels.Single(),
-                _ => context?.HandlingKernel
-            };
-
-            if (kernel is null)
+            if (CanHandle(command))
             {
                 return this;
             }
 
-            return kernel;
-        }
-
-        internal override async Task HandleAsync(
-            KernelCommand command,
-            KernelInvocationContext context)
-        {
-            if (!string.IsNullOrWhiteSpace(command.TargetKernelName) &&
-                _childKernels.TryGetByAlias(command.TargetKernelName, out var kernel))
+            if (!_defaultKernelNamesByCommandType.TryGetValue(command.GetType(), out targetKernelName))
             {
-                // route to a subkernel
-                await kernel.Pipeline.SendAsync(command, context);
-            }
-            else
-            {
-                await base.HandleAsync(command, context);
+                targetKernelName = DefaultKernelName;
             }
         }
 
-        private protected override async Task HandleRequestKernelInfoAsync(
-            RequestKernelInfo command,
-            KernelInvocationContext context)
+        if (targetKernelName is not null)
         {
-            foreach (var childKernel in ChildKernels)
+            if (_childKernels.TryGetByAlias(targetKernelName, out kernel))
             {
-                if (childKernel.SupportsCommand(command))
-                {
-                    await childKernel.HandleAsync(command, context);
-                }
+                return kernel;
             }
         }
 
-        private protected override IEnumerable<Parser> GetDirectiveParsersForCompletion(
-            DirectiveNode directiveNode,
-            int requestPosition)
+        kernel = _childKernels.Count switch
         {
-            var upToCursor =
-                directiveNode.Text[..requestPosition];
+            0 => null,
+            1 => _childKernels.Single(),
+            _ => context?.HandlingKernel
+        };
 
-            var indexOfPreviousSpace =
-                upToCursor.LastIndexOf(" ", StringComparison.CurrentCultureIgnoreCase);
+        if (kernel is null)
+        {
+            return this;
+        }
 
-            var compositeKernelDirectiveParser = SubmissionParser.GetDirectiveParser();
+        return kernel;
+    }
 
-            if (indexOfPreviousSpace >= 0 &&
-                directiveNode is ActionDirectiveNode actionDirectiveNode)
+    internal override async Task HandleAsync(
+        KernelCommand command,
+        KernelInvocationContext context)
+    {
+        if (!string.IsNullOrWhiteSpace(command.TargetKernelName) &&
+            _childKernels.TryGetByAlias(command.TargetKernelName, out var kernel))
+        {
+            // route to a subkernel
+            await kernel.Pipeline.SendAsync(command, context);
+        }
+        else
+        {
+            await base.HandleAsync(command, context);
+        }
+    }
+
+    private protected override async Task HandleRequestKernelInfoAsync(
+        RequestKernelInfo command,
+        KernelInvocationContext context)
+    {
+        context.Publish(new KernelInfoProduced(KernelInfo, command));
+
+        foreach (var childKernel in ChildKernels)
+        {
+            if (childKernel.SupportsCommand(command))
             {
-                // if the first token has been specified, we can narrow down to the specific directive parser that defines this directive
-
-                var directiveName = directiveNode.ChildNodesAndTokens[0].Text;
-
-                var kernel = this.FindKernelByName(actionDirectiveNode.ParentKernelName);
-
-                if (kernel is null)
-                {
-                    yield break;
-                }
-
-                var languageKernelDirectiveParser = kernel.SubmissionParser.GetDirectiveParser();
-
-                if (IsDirectiveDefinedIn(languageKernelDirectiveParser))
-                {
-                    // the directive is defined in the subkernel, so this is the only directive parser we need
-                    yield return languageKernelDirectiveParser;
-                }
-                else if (IsDirectiveDefinedIn(compositeKernelDirectiveParser))
-                {
-                    yield return compositeKernelDirectiveParser;
-                }
-
-                bool IsDirectiveDefinedIn(Parser parser) =>
-                    parser.Configuration.RootCommand.Children.GetByAlias(directiveName) is { };
+                var childCommand = new RequestKernelInfo(childKernel.Name);
+                childCommand.Parent = command;
+                childCommand.RoutingSlip.ContinueWith(command.RoutingSlip);
+                await childKernel.HandleAsync(childCommand, context);
             }
-            else
+        }
+    }
+
+    private protected override IEnumerable<Parser> GetDirectiveParsersForCompletion(
+        DirectiveNode directiveNode,
+        int requestPosition)
+    {
+        var upToCursor =
+            directiveNode.Text[..requestPosition];
+
+        var indexOfPreviousSpace =
+            upToCursor.LastIndexOf(" ", StringComparison.CurrentCultureIgnoreCase);
+
+        var compositeKernelDirectiveParser = SubmissionParser.GetDirectiveParser();
+
+        if (indexOfPreviousSpace >= 0 &&
+            directiveNode is ActionDirectiveNode actionDirectiveNode)
+        {
+            // if the first token has been specified, we can narrow down to the specific directive parser that defines this directive
+
+            var directiveName = directiveNode.ChildNodesAndTokens[0].Text;
+
+            var kernel = this.FindKernelByName(actionDirectiveNode.ParentKernelName) ?? this;
+            
+            var languageKernelDirectiveParser = kernel.SubmissionParser.GetDirectiveParser();
+
+            if (IsDirectiveDefinedIn(languageKernelDirectiveParser))
             {
-                // otherwise, return all directive parsers from the CompositeKernel as well as subkernels
+                // the directive is defined in the subkernel, so this is the only directive parser we need
+                yield return languageKernelDirectiveParser;
+            }
+            else if (IsDirectiveDefinedIn(compositeKernelDirectiveParser))
+            {
                 yield return compositeKernelDirectiveParser;
-
-                foreach (var kernel in ChildKernels)
-                {
-                    yield return kernel.SubmissionParser.GetDirectiveParser();
-                }
             }
+
+            bool IsDirectiveDefinedIn(Parser parser) =>
+                parser.Configuration.RootCommand.Children.GetByAlias(directiveName) is { };
         }
-
-        public IEnumerator<Kernel> GetEnumerator() => _childKernels.GetEnumerator();
-
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-
-        public async Task LoadExtensionsFromDirectoryAsync(
-            DirectoryInfo directory,
-            KernelInvocationContext context)
+        else
         {
-            await _extensionLoader.LoadFromDirectoryAsync(
-                directory,
-                this,
-                context);
+            // otherwise, return all directive parsers from the CompositeKernel as well as subkernels
+            yield return compositeKernelDirectiveParser;
 
-            await _scriptExtensionLoader.LoadFromDirectoryAsync(
-                directory,
-                this,
-                context);
-        }
-
-        public void AddKernelConnector(ConnectKernelCommand connectionCommand)
-        {
-            if (_connectDirective is null)
+            foreach (var kernel in ChildKernels)
             {
-                _connectDirective = new Command(
-                    "#!connect",
-                    "Connects additional subkernels");
-
-                AddDirective(_connectDirective);
+                yield return kernel.SubmissionParser.GetDirectiveParser();
             }
+        }
+    }
 
-            connectionCommand.Handler = CommandHandler.Create<KernelInvocationContext, InvocationContext>(
-                async (context, commandLineContext) =>
+    public IEnumerator<Kernel> GetEnumerator() => _childKernels.GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    public void AddKernelConnector(ConnectKernelCommand connectionCommand)
+    {
+        if (_connectDirective is null)
+        {
+            _connectDirective = new Command(
+                "#!connect",
+                "Connects additional subkernels");
+
+            AddDirective(_connectDirective);
+        }
+
+        connectionCommand.Handler = CommandHandler.Create<KernelInvocationContext, InvocationContext>(
+            async (context, commandLineContext) =>
+            {
+                var connectedKernels = await connectionCommand.ConnectKernelsAsync(context, commandLineContext);
+                foreach (var connectedKernel in connectedKernels)
                 {
-                    var connectedKernel = await connectionCommand.ConnectKernelAsync(context, commandLineContext);
 
                     Add(connectedKernel);
 
@@ -348,27 +288,27 @@ namespace Microsoft.DotNet.Interactive
                     chooseKernelDirective.Description += " (Connected kernel)";
 
                     context.Display($"Kernel added: #!{connectedKernel.Name}");
-                });
+                }
+            });
 
-            _connectDirective.Add(connectionCommand);
+        _connectDirective.Add(connectionCommand);
 
-            SubmissionParser.ResetParser();
-        }
+        SubmissionParser.ResetParser();
+    }
 
-        public KernelHost Host => _host;
+    public KernelHost Host => _host;
 
-        internal void SetHost(KernelHost host)
+    internal void SetHost(KernelHost host)
+    {
+        if (_host is { })
         {
-            if (_host is { })
-            {
-                throw new InvalidOperationException("Host cannot be changed");
-            }
-
-            _host = host;
-
-            KernelInfo.Uri = _host.Uri;
-
-            _childKernels.NotifyThatHostWasSet();
+            throw new InvalidOperationException("Host cannot be changed");
         }
+
+        _host = host;
+
+        KernelInfo.Uri = _host.Uri;
+
+        _childKernels.NotifyThatHostWasSet();
     }
 }

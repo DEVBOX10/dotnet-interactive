@@ -4,15 +4,11 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.DotNet.Interactive.Commands;
-using Microsoft.DotNet.Interactive.Formatting.TabularData;
 
 namespace Microsoft.DotNet.Interactive.ValueSharing;
 
 internal class JavaScriptValueDeclarer 
 {
-    // FIX: (JavaScriptValueDeclarer) refactor away / make internal
-
     private static readonly JsonSerializerOptions _serializerOptions;
 
     static JavaScriptValueDeclarer()
@@ -26,8 +22,6 @@ internal class JavaScriptValueDeclarer
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
             Converters =
             {
-                new TableSchemaFieldTypeConverter(),
-                new TabularDataResourceConverter(),
                 new DataDictionaryConverter()
             }
         };
@@ -40,8 +34,6 @@ internal class JavaScriptValueDeclarer
             code = $"{declareAsName} = {JsonSerializer.Serialize(value, _serializerOptions)};";
             return true;
         }
-
-        // FIX: (TryGetValueDeclaration) handle application/json
 
         code = null;
         return false;

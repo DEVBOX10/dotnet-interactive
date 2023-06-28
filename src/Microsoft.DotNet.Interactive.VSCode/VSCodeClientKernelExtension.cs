@@ -3,10 +3,8 @@
 
 using System;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 
 using Microsoft.DotNet.Interactive.Commands;
-using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.PowerShell;
 
 namespace Microsoft.DotNet.Interactive.VSCode;
@@ -21,9 +19,11 @@ public class VSCodeClientKernelExtension : IKernelExtension
                 "vscode",
                 new Uri("kernel://vscode"),
                 new[] { "frontend" });
+            hostKernel.ChooseKernelDirective.IsHidden = true;
             hostKernel.KernelInfo.SupportedKernelCommands.Add(new(nameof(RequestInput)));
             root.SetDefaultTargetKernelNameForCommand(typeof(RequestInput), "vscode");
             hostKernel.KernelInfo.SupportedKernelCommands.Add(new(nameof(SendEditableCode)));
+            root.SetDefaultTargetKernelNameForCommand(typeof(SendEditableCode), "vscode");
 
             var jsKernel = await root.Host.ConnectProxyKernelOnDefaultConnectorAsync(
                 "javascript",

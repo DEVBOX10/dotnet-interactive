@@ -6,6 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.DotNet.Interactive.Connection;
+using Microsoft.DotNet.Interactive.Utility;
 
 namespace Microsoft.DotNet.Interactive;
 
@@ -95,6 +96,11 @@ public class KernelCollection : IReadOnlyCollection<Kernel>
         if (_compositeKernel.Host is { } host)
         {
             kernel.KernelInfo.Uri = new Uri(host.Uri, kernel.Name);
+            _kernelsByLocalUri.TryAdd(kernel.KernelInfo.Uri, kernel);
+        }
+        else
+        {
+            kernel.KernelInfo.Uri = new Uri(_compositeKernel.KernelInfo.Uri, kernel.Name);
             _kernelsByLocalUri.TryAdd(kernel.KernelInfo.Uri, kernel);
         }
 

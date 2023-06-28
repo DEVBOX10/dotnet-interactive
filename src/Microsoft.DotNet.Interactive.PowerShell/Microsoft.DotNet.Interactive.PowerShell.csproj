@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net7.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <NoWarn>$(NoWarn);2003;CS8002;NU1608;</NoWarn> <!-- AssemblyInformationalVersionAttribute contains a non-standard value -->
     <NoWarn>$(NoWarn);NU5100</NoWarn><!-- dll outside of lib/ folder; expected since it's under contentFiles/any/any/Modules/ -->
@@ -23,6 +23,7 @@
     <PackageReference Include="PackageManagement" Version="1.4.6" PrivateAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="PowerShellGet" Version="2.2.3" PrivateAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.PowerShell.Archive" Version="1.2.5" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="System.Net.Http" Version="4.3.4" />
     <PackageReference Include="ThreadJob" Version="2.0.3" PrivateAssets="all" GeneratePathProperty="true" />
   </ItemGroup>
 
@@ -47,9 +48,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.IO.Pipelines" Version="6.0.3" />
+    <PackageReference Include="System.IO.Pipelines" Version="7.0.0" />
     <PackageReference Include="System.Security.Cryptography.Xml" Version="$(SystemSecurityCryptographyXmlVersion)" />
-    <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.2.6" />
+    <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.3.0" />
   </ItemGroup>
 
 </Project>

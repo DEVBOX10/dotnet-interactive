@@ -1,0 +1,15 @@
+.vscode/**
+.vscode-test/**
+out/src/common/tests/**
+src/**
+tools/**
+.gitignore
+mocha.opts
+testConfig.json
+tsconfig.json
+typings.json
+wallaby.js
+.eslintignore
+.eslintrc.json
+**/*.map
+**/*.ts

@@ -3,7 +3,8 @@
     "formattedValues": [
       {
         "mimeType": "text/html",
-        "value": "\u003Cb\u003Ehi!\u003C/b\u003E"
+        "value": "<b>hi!</b>",
+        "suppressDisplay": false
       }
     ],
     "valueId": null
@@ -14,13 +15,14 @@
     "id": "command-id",
     "commandType": "SubmitCode",
     "command": {
-      "code": "b(\u0022hi!\u0022)",
+      "code": "b(\"hi!\")",
       "submissionType": "run",
       "targetKernelName": "csharp",
       "originUri": null,
       "destinationUri": null
     },
     "routingSlip": [
+      "kernel://somelocation/kernelName?tag=arrived",
       "kernel://somelocation/kernelName"
     ]
   },

@@ -1,7 +1,6 @@
 [CmdletBinding(PositionalBinding = $false)]
 param (
     [string]$packageVersionNumber,
-    [string]$gitSha,
     [string]$outDir
 )
 
@@ -12,13 +11,12 @@ function Build-NpmPackage() {
     $packageJsonPath = Join-Path (Get-Location) "package.json"
     $packageJsonContents = ReadJson -packageJsonPath $packageJsonPath
     SetNpmVersionNumber -packageJsonContents $packageJsonContents -packageVersionNumber $packageVersionNumber
-    AddGitShaToDescription -packageJsonContents $packageJsonContents -gitSha $gitSha
     SaveJson -packageJsonPath $packagejsonPath -packageJsonContents $packageJsonContents
 
     # pack
     Write-Host "Packing package"
     npm pack
-    Copy-Item -Path (Join-Path (Get-Location) "microsoft-dotnet-interactive-$packageVersionNumber.tgz") -Destination $outDir
+    Copy-Item -Path (Join-Path (Get-Location) "microsoft-polyglot-notebooks-$packageVersionNumber.tgz") -Destination $outDir
 }
 
 try {
