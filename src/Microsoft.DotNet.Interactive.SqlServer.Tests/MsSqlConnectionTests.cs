@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.DotNet.Interactive.App;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
@@ -36,8 +37,7 @@ public class MsSqlConnectionTests : IDisposable
 
         kernel.DefaultKernelName = csharpKernel.Name;
 
-        var sqlKernelExtension = new MsSqlKernelExtension();
-        await sqlKernelExtension.OnLoadAsync(kernel);
+        await MsSqlKernelExtension.LoadAsync(kernel);
 
         return kernel;
     }

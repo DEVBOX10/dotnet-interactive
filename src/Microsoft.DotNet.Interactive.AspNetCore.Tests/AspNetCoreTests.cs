@@ -7,7 +7,7 @@ using FluentAssertions;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
-using Microsoft.DotNet.Interactive.HttpRequest;
+using Microsoft.DotNet.Interactive.Http;
 using Microsoft.DotNet.Interactive.Tests.Utility;
 using Xunit;
 
@@ -24,7 +24,7 @@ public class AspNetCoreTests : IDisposable
             new CSharpKernel(),
         };
 
-        var loadTask = new AspNetCoreKernelExtension().OnLoadAsync(_kernel);
+        var loadTask = AspNetCoreKernelExtension.LoadAsync(_kernel);
         Assert.Same(Task.CompletedTask, loadTask);
 
         HttpResponseMessageFormattingExtensions.RegisterFormatters();

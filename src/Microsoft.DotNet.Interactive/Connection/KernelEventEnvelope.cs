@@ -79,7 +79,6 @@ public abstract class KernelEventEnvelope : IKernelEventEnvelope
             [nameof(SignatureHelpProduced)] = typeof(KernelEventEnvelope<SignatureHelpProduced>),
             [nameof(StandardErrorValueProduced)] = typeof(KernelEventEnvelope<StandardErrorValueProduced>),
             [nameof(StandardOutputValueProduced)] = typeof(KernelEventEnvelope<StandardOutputValueProduced>),
-            [nameof(WorkingDirectoryChanged)] = typeof(KernelEventEnvelope<WorkingDirectoryChanged>),
             [nameof(KernelExtensionLoaded)] = typeof(KernelEventEnvelope<KernelExtensionLoaded>),
             [nameof(ValueInfosProduced)] = typeof(KernelEventEnvelope<ValueInfosProduced>),
             [nameof(ValueProduced)] = typeof(KernelEventEnvelope<ValueProduced>)
@@ -215,7 +214,6 @@ public abstract class KernelEventEnvelope : IKernelEventEnvelope
                 command = commandEnvelope.Command,
                 commandType = commandEnvelope.CommandType,
                 token = eventEnvelope.Event.Command.GetOrCreateToken(),
-                id = commandEnvelope.CommandId,
                 routingSlip = commandEnvelope.Command.RoutingSlip.ToUriArray()
             };
         }

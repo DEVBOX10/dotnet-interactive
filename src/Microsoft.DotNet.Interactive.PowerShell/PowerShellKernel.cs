@@ -265,12 +265,6 @@ public class PowerShellKernel :
             return;
         }
 
-        // Do nothing if we get a Diagnose type.
-        if (submitCode.SubmissionType == SubmissionType.Diagnose)
-        {
-            return;
-        }
-
         if (context.CancellationToken.IsCancellationRequested)
         {
             context.Fail(submitCode, null, "Command cancelled");
@@ -284,6 +278,11 @@ public class PowerShellKernel :
         else
         {
             RunSubmitCodeLocally(code);
+
+            if (pwsh.HadErrors)
+            {
+                context.Fail(context.Command);
+            }
         }
     }
 
@@ -375,9 +374,9 @@ public class PowerShellKernel :
     {
         try
         {
-            pwsh.AddScript(code)
-                .AddCommand(_outDefaultCommand)
-                .Commands.Commands[0].MergeMyResults(PipelineResultTypes.Error, PipelineResultTypes.Output);
+            pwsh.AddScript(code).AddCommand(_outDefaultCommand);
+
+            pwsh.Commands.Commands[0].MergeMyResults(PipelineResultTypes.Error, PipelineResultTypes.Output);
 
             pwsh.InvokeAndClearCommands();
         }

@@ -23,6 +23,9 @@ changelog:
     - title: Area-Auth
       labels:
         - Area-Auth
+    - title: Area-API
+      labels:
+        - Area-API
     - title: Area-C#
       labels:
         - Area-C#
@@ -38,6 +41,9 @@ changelog:
     - title: Area-Formatting
       labels:
         - Area-Formatting
+    - title: Area-HTTP
+      labels:
+        - Area-HTTP
     - title: Area-JavaScript HTML CSS
       labels:
         - Area-JavaScript HTML CSS

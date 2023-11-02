@@ -136,8 +136,6 @@ public abstract partial class Kernel :
             throw new ArgumentNullException(nameof(command));
         }
 
-        command.SetToken($"deferredCommand::{Guid.NewGuid():N}");
-
         _deferredCommands.Enqueue(command);
     }
 
@@ -181,9 +179,9 @@ public abstract partial class Kernel :
                 return false;
             }
 
-            if (command.DestinationUri is { } &&
-                handlingKernel.KernelInfo.Uri is { } &&
-                command.DestinationUri == handlingKernel.KernelInfo.Uri)
+            if (command.DestinationUri is not null &&
+                handlingKernel.KernelInfo.Uri is { } uri &&
+                command.DestinationUri == uri)
             {
                 command.SchedulingScope = handlingKernel.SchedulingScope;
                 command.TargetKernelName = handlingKernel.Name;
@@ -191,11 +189,10 @@ public abstract partial class Kernel :
 
             command.SchedulingScope ??= handlingKernel.SchedulingScope;
             command.TargetKernelName ??= handlingKernel.Name;
-
-            if (command.Parent is null &&
-                !command.Equals(originalCommand))
+            
+            if (!command.Equals(originalCommand))
             {
-                command.Parent = originalCommand;
+                command.SetParent(originalCommand, true);
             }
 
             if (handlingKernel is ProxyKernel &&
@@ -230,21 +227,25 @@ public abstract partial class Kernel :
         // TextSpan.Contains only checks `[start, end)`, but we need to allow for `[start, end]`
         var absolutePosition = tree.GetAbsolutePosition(command.LinePosition);
 
-        if (absolutePosition >= tree.Length)
+        // don't let abs position drop below 0
+        if (absolutePosition > 0)
         {
-            absolutePosition--;
-        }
-        else if (char.IsWhiteSpace(rootNode.Text[absolutePosition]))
-        {
-            absolutePosition--;
+            if (absolutePosition >= tree.Length)
+            {
+                absolutePosition--;
+            }
+            else if (char.IsWhiteSpace(rootNode.Text[absolutePosition]))
+            {
+                absolutePosition--;
+            }
         }
 
         if (rootNode.FindNode(absolutePosition) is LanguageNode node)
         {
             var nodeStartLine = sourceText.Lines.GetLinePosition(node.Span.Start).Line;
             var offsetNodeLine = command.LinePosition.Line - nodeStartLine;
-            var position = new LinePosition(offsetNodeLine, command.LinePosition.Character);
-
+            var position = command.LinePosition with { Line = offsetNodeLine };
+            
             // create new command
             var offsetLanguageServiceCommand = command.With(
                 node,
@@ -261,6 +262,9 @@ public abstract partial class Kernel :
         else
         {
             adjustedCommand = null;
+            // need to return false to notify caller of failure
+            // otherwise caller assumes out param is valid ref
+            return false;
         }
 
         return true;
@@ -337,21 +341,20 @@ public abstract partial class Kernel :
 
         using var disposable = new SerialDisposable();
 
-        KernelInvocationContext context = null;
         command.ShouldPublishCompletionEvent ??= true;
 
-        context = KernelInvocationContext.GetOrCreateAmbientContext(command, GetKernelHost()?.ContextsByRootToken);
+        var context = KernelInvocationContext.GetOrCreateAmbientContext(command, GetKernelHost()?.ContextsByRootToken);
+
+        // only subscribe for the root command 
+        var currentCommandOwnsContext = ReferenceEquals(context.Command, command);
 
         if (command.Parent is null)
         {
-            if (!ReferenceEquals(command, context.Command))
+            if (Scheduler.CurrentValue is { } currentlyExecutingCommand)
             {
-                command.Parent = context.Command;
+                command.SetParent(currentlyExecutingCommand);
             }
         }
-
-        // only subscribe for the root command 
-        var currentCommandOwnsContext = context.Command.Equals(command);
 
         if (currentCommandOwnsContext)
         {
@@ -526,7 +529,7 @@ public abstract partial class Kernel :
             return Task.CompletedTask;
         }, targetKernelName: targetKernelName)
         {
-            Parent = parent;
+            SetParent(parent);
         }
 
         public override string ToString() => $"Undefer commands ahead of {Parent}";
@@ -603,7 +606,7 @@ public abstract partial class Kernel :
             var currentInvocationContext = KernelInvocationContext.Current;
             kernelCommand.TargetKernelName = Name;
             kernelCommand.SchedulingScope = SchedulingScope;
-            kernelCommand.Parent = currentInvocationContext?.Command;
+            kernelCommand.SetParent(currentInvocationContext.Command);
 
             if (TrySplitCommand(kernelCommand, currentInvocationContext, out var commands))
             {
@@ -713,7 +716,7 @@ public abstract partial class Kernel :
                     upToCursor.LastIndexOf(" ", StringComparison.CurrentCultureIgnoreCase) + 1);
 
             var resultRange = new LinePositionSpan(
-                new LinePosition(command.LinePosition.Line, indexOfPreviousSpace),
+                command.LinePosition with { Character = indexOfPreviousSpace },
                 command.LinePosition);
 
             context.Publish(
@@ -825,10 +828,6 @@ public abstract partial class Kernel :
                 case (RequestValueInfos requestValueInfos, IKernelCommandHandler<RequestValueInfos>
                     requestValueInfosHandler):
                     SetHandler(requestValueInfos, requestValueInfosHandler);
-                    break;
-
-                case (ChangeWorkingDirectory changeWorkingDirectory, IKernelCommandHandler<ChangeWorkingDirectory> changeWorkingDirectoryHandler):
-                    SetHandler(changeWorkingDirectory, changeWorkingDirectoryHandler);
                     break;
 
                 case (RequestKernelInfo requestKernelInfo, IKernelCommandHandler<RequestKernelInfo> requestKernelInfoHandler):

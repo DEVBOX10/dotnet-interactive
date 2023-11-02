@@ -9,6 +9,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.DotNet.Interactive.App;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
@@ -48,7 +49,31 @@ public partial class VariableSharingTests
             await composite.SendAsync(new SubmitCode("#!set --name x --value @input:input-please"));
             var valueProduced = await kernel.RequestValueAsync("x");
             
-            valueProduced.Value.Should().BeEquivalentTo("hello!");
+            valueProduced.Value.Should().Be("hello!");
+        }
+
+        [Fact]
+        public async Task can_set_value_prompting_user_for_password()
+        {
+            var kernel = CreateKernel(Language.CSharp);
+
+            using var composite = new CompositeKernel
+            {
+                kernel
+            };
+
+            composite.RegisterCommandHandler<RequestInput>((requestInput, context) =>
+            {
+                context.Publish(new InputProduced("hello!", requestInput));
+                return Task.CompletedTask;
+            });
+
+            composite.SetDefaultTargetKernelNameForCommand(typeof(RequestInput), composite.Name);
+
+            await composite.SendAsync(new SubmitCode("#!set --name x --value @password:input-please"));
+            var valueProduced = await kernel.RequestValueAsync("x");
+
+            valueProduced.Value.As<PasswordString>().GetClearTextPassword().Should().Be("hello!");
         }
 
         [Fact]
@@ -82,6 +107,32 @@ public partial class VariableSharingTests
                 .Which;
 
             valueInfosProduced.ValueInfos.Select(v => v.Name).Should().BeEquivalentTo("newVar1", "newVar2", "newVar3");
+        }
+
+        [Fact]
+        public async Task RequestInput_ValueName_is_initialized_from_name_option()
+        {
+            var kernel = CreateKernel(Language.CSharp);
+
+            using var composite = new CompositeKernel
+            {
+                kernel
+            };
+
+            RequestInput receivedRequestInputCommand = null;
+
+            composite.RegisterCommandHandler<RequestInput>((requestInput, context) =>
+            {
+                receivedRequestInputCommand = requestInput;
+                context.Publish(new InputProduced("hello!", requestInput));
+                return Task.CompletedTask;
+            });
+
+            composite.SetDefaultTargetKernelNameForCommand(typeof(RequestInput), composite.Name);
+
+            await composite.SendAsync(new SubmitCode("#!set --name x --value @input:input-please"));
+
+            receivedRequestInputCommand.ValueName.Should().Be("x");
         }
 
         [Theory]
@@ -499,11 +550,11 @@ public partial class VariableSharingTests
         {
             using var localCompositeKernel = new CompositeKernel
             {
-                (new CSharpKernel()).UseValueSharing()
+                new CSharpKernel().UseValueSharing()
             };
             using var remoteCompositeKernel = new CompositeKernel
             {
-                (new FSharpKernel()).UseValueSharing()
+                new FSharpKernel().UseValueSharing()
             };
 
             ConnectHost.ConnectInProcessHost(

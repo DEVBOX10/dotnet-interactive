@@ -7,8 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 
 using FluentAssertions;
-
-using Microsoft.Diagnostics.Runtime.Utilities;
+using Microsoft.DotNet.Interactive.App;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
@@ -38,8 +37,7 @@ public class KqlConnectionTests : IDisposable
 
         kernel.DefaultKernelName = csharpKernel.Name;
 
-        var kqlKernelExtension = new KqlKernelExtension();
-        await kqlKernelExtension.OnLoadAsync(kernel);
+        await KqlKernelExtension.LoadAsync(kernel);
 
         return kernel;
     }

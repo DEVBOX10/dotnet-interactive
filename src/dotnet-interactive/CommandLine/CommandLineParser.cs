@@ -24,7 +24,6 @@ using Microsoft.DotNet.Interactive.Formatting.Csv;
 using Microsoft.DotNet.Interactive.Formatting.TabularData;
 using Microsoft.DotNet.Interactive.FSharp;
 using Microsoft.DotNet.Interactive.Http;
-using Microsoft.DotNet.Interactive.HttpRequest;
 using Microsoft.DotNet.Interactive.Jupyter;
 using Microsoft.DotNet.Interactive.Jupyter.Formatting;
 using Microsoft.DotNet.Interactive.Mermaid;
@@ -101,7 +100,7 @@ public static class CommandLineParser
 
         startKernelHost ??= StdIoMode.Do;
 
-        startNotebookParser ??=  ParseNotebookCommand.RunParserServer;
+        startNotebookParser ??= ParseNotebookCommand.RunParserServer;
 
         startHttp ??= HttpCommand.Do;
 
@@ -214,9 +213,9 @@ public static class CommandLineParser
             {
                 var frontendEnvironment = new HtmlNotebookFrontendEnvironment();
                 var kernel = CreateKernel(options.DefaultKernel, frontendEnvironment, startupOptions, telemetrySender);
-                cancellationToken.Register(() => kernel.Dispose());
+                cancellationToken.Register(kernel.Dispose);
 
-                await new JupyterClientKernelExtension().OnLoadAsync(kernel);
+                await JupyterClientKernelExtension.LoadAsync(kernel);
 
                 services.AddKernel(kernel);
 
@@ -229,7 +228,7 @@ public static class CommandLineParser
                         return new JupyterRequestContextScheduler(delivery => c.GetRequiredService<JupyterRequestContextHandler>()
                             .Handle(delivery));
                     })
-                    .AddSingleton(c => new JupyterRequestContextHandler(kernel))
+                    .AddSingleton(_ => new JupyterRequestContextHandler(kernel))
                     .AddSingleton<IHostedService, Shell>()
                     .AddSingleton<IHostedService, Heartbeat>();
 
@@ -364,8 +363,7 @@ public static class CommandLineParser
 
                     if (isVSCode)
                     {
-                        var vscodeSetup = new VSCodeClientKernelExtension();
-                        await vscodeSetup.OnLoadAsync(kernel);
+                        await VSCodeClientKernelExtension.LoadAsync(kernel);
                     }
 
                     if (startupOptions.EnableHttpApi)

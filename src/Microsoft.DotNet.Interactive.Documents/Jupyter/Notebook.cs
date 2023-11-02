@@ -7,13 +7,14 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using Microsoft.DotNet.Interactive.Documents.Json;
 
 namespace Microsoft.DotNet.Interactive.Documents.Jupyter;
 
 public static class Notebook
 {
+    private static readonly Encoding _encoding = new UTF8Encoding(false);
+
     static Notebook()
     {
         JsonSerializerOptions = new JsonSerializerOptions
@@ -34,12 +35,7 @@ public static class Notebook
         };
     }
 
-    public static JsonSerializerOptions JsonSerializerOptions { get; }
-
-    public const string MetadataNamespace = "dotnet_interactive";
-    public const string PolyglotMetadataNamespace = "polyglot_notebook";
-
-    public static Encoding Encoding => new UTF8Encoding(false);
+    internal static JsonSerializerOptions JsonSerializerOptions { get; }
 
     public static InteractiveDocument Parse(
         string json,
@@ -60,38 +56,16 @@ public static class Notebook
         Stream stream,
         KernelInfoCollection kernelInfos)
     {
-        using var reader = new StreamReader(stream, Encoding);
+        using var reader = new StreamReader(stream, _encoding);
         var content = reader.ReadToEnd();
         return Parse(content, kernelInfos);
-    }
-
-    public static async Task<InteractiveDocument> ReadAsync(
-        Stream stream,
-        KernelInfoCollection? kernelInfo = null)
-    {
-        using var reader = new StreamReader(stream, Encoding);
-        var content = await reader.ReadToEndAsync();
-        return Parse(content, kernelInfo);
-    }
-
-    public static void Write(InteractiveDocument document, Stream stream)
-    {
-        using var writer = new StreamWriter(stream, Encoding, 1024, true);
-        Write(document, writer);
-        writer.Flush();
-    }
-
-    public static void Write(InteractiveDocument document, Stream stream, KernelInfoCollection kernelInfos)
-    {
-        InteractiveDocument.MergeKernelInfos(document, kernelInfos);
-        Write(document, stream);
     }
 
     public static string ToJupyterJson(
         this InteractiveDocument document,
         string? defaultLanguage = null)
     {
-        if (defaultLanguage is {})
+        if (defaultLanguage is { })
         {
             document.WithJupyterMetadata(defaultLanguage);
         }
@@ -107,15 +81,12 @@ public static class Notebook
         return singleSpaceIndentedJson;
     }
 
-    public static void Write(InteractiveDocument document, TextWriter writer)
-    {
-        var content = document.ToJupyterJson();
-        writer.Write(content);
-    }
-    public static void Write(InteractiveDocument document, TextWriter writer, KernelInfoCollection kernelInfos)
+    public static void Write(InteractiveDocument document, Stream stream, KernelInfoCollection kernelInfos)
     {
         InteractiveDocument.MergeKernelInfos(document, kernelInfos);
-        Write(document, writer);
+        using var writer = new StreamWriter(stream, _encoding, 1024, true);
+        var content = document.ToJupyterJson();
+        writer.Write(content);
+        writer.Flush();
     }
-
 }

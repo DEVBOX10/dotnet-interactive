@@ -3,6 +3,7 @@
 
 using System;
 using System.Threading.Tasks;
+using Microsoft.DotNet.Interactive.App;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.FSharp;
@@ -52,7 +53,7 @@ public abstract class JupyterRequestHandlerTestBase : IDisposable
             }
             .UseDefaultMagicCommands();
 
-        Task.Run(() => new JupyterClientKernelExtension().OnLoadAsync(_compositeKernel)).Wait(5000);
+        Task.Run(() => JupyterClientKernelExtension.LoadAsync(_compositeKernel)).Wait(5000);
 
         SetKernelLanguage(Language.CSharp);
 

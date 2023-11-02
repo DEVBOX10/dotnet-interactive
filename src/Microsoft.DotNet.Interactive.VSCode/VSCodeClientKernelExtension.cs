@@ -3,15 +3,13 @@
 
 using System;
 using System.Threading.Tasks;
-
 using Microsoft.DotNet.Interactive.Commands;
-using Microsoft.DotNet.Interactive.PowerShell;
 
 namespace Microsoft.DotNet.Interactive.VSCode;
 
-public class VSCodeClientKernelExtension : IKernelExtension
+public class VSCodeClientKernelExtension
 {
-    public async Task OnLoadAsync(Kernel kernel)
+    public static async Task LoadAsync(Kernel kernel)
     {
         if (kernel is CompositeKernel root)
         {
@@ -35,24 +33,6 @@ public class VSCodeClientKernelExtension : IKernelExtension
             jsKernel.KernelInfo.SupportedKernelCommands.Add(new(nameof(SendValue)));
 
             jsKernel.UseValueSharing();
-
-            root.VisitSubkernels(subkernel =>
-            {
-                if (subkernel is PowerShellKernel powerShellKernel)
-                {
-                    powerShellKernel.ReadInput = prompt =>
-                    {
-                        var result = Kernel.GetInputAsync(prompt).GetAwaiter().GetResult();
-                        return result;
-                    };
-
-                    powerShellKernel.ReadPassword = prompt =>
-                    {
-                        var result = Kernel.GetPasswordAsync(prompt).GetAwaiter().GetResult();
-                        return new PasswordString(result);
-                    };
-                }
-            });
         }
     }
 }

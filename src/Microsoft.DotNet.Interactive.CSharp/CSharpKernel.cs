@@ -28,7 +28,6 @@ namespace Microsoft.DotNet.Interactive.CSharp;
 
 public class CSharpKernel :
     Kernel,
-    ISupportNuget,
     IKernelCommandHandler<RequestCompletions>,
     IKernelCommandHandler<RequestDiagnostics>,
     IKernelCommandHandler<RequestHoverText>,
@@ -36,8 +35,7 @@ public class CSharpKernel :
     IKernelCommandHandler<RequestValue>,
     IKernelCommandHandler<RequestValueInfos>,
     IKernelCommandHandler<SendValue>,
-    IKernelCommandHandler<SubmitCode>,
-    IKernelCommandHandler<ChangeWorkingDirectory>
+    IKernelCommandHandler<SubmitCode>
 {
     internal const string DefaultKernelName = "csharp";
 
@@ -49,7 +47,6 @@ public class CSharpKernel :
 
     private InteractiveWorkspace _workspace;
 
-    private Lazy<PackageRestoreContext> _lazyPackageRestoreContext;
 
     private ScriptOptions _scriptOptions;
 
@@ -85,22 +82,11 @@ public class CSharpKernel :
                 typeof(Kernel).Assembly,
                 typeof(CSharpKernel).Assembly,
                 typeof(PocketView).Assembly);
-
-        _lazyPackageRestoreContext = new Lazy<PackageRestoreContext>(() =>
-        {
-            var packageRestoreContext = new PackageRestoreContext();
-
-            RegisterForDisposal(packageRestoreContext);
-
-            return packageRestoreContext;
-        });
-
+        
         RegisterForDisposal(() =>
         {
             _workspace.Dispose();
             _workspace = null;
-
-            _lazyPackageRestoreContext = null;
             ScriptState = null;
             _scriptOptions = null;
         });
@@ -278,11 +264,6 @@ public class CSharpKernel :
             context.Publish(new IncompleteCodeSubmissionReceived(submitCode));
         }
 
-        if (submitCode.SubmissionType == SubmissionType.Diagnose)
-        {
-            return;
-        }
-
         Exception exception = null;
         string message = null;
 
@@ -364,11 +345,6 @@ public class CSharpKernel :
         {
             context.Fail(submitCode, null, "Command cancelled");
         }
-    }
-
-    Task IKernelCommandHandler<ChangeWorkingDirectory>.HandleAsync(ChangeWorkingDirectory command, KernelInvocationContext context)
-    {
-        return Task.CompletedTask;
     }
 
     private async Task RunAsync(
@@ -492,23 +468,13 @@ public class CSharpKernel :
         }
     }
 
-    public PackageRestoreContext PackageRestoreContext => _lazyPackageRestoreContext.Value;
-
     private bool HasReturnValue =>
         ScriptState is not null &&
         (bool)_hasReturnValueMethod.Invoke(ScriptState.Script, null);
-
-    void ISupportNuget.TryAddRestoreSource(string source) => _lazyPackageRestoreContext.Value.TryAddRestoreSource(source);
-
-    PackageReference ISupportNuget.GetOrAddPackageReference(string packageName, string packageVersion) =>
-        _lazyPackageRestoreContext.Value.GetOrAddPackageReference(
-            packageName,
-            packageVersion);
-
-    void ISupportNuget.RegisterResolvedPackageReferences(IReadOnlyList<ResolvedPackageReference> resolvedReferences)
+    
+    public void AddAssemblyReferences(IEnumerable<string> assemblyPaths)
     {
-        var references = resolvedReferences
-            .SelectMany(r => r.AssemblyPaths)
+        var references = assemblyPaths
             .Select(r => CachingMetadataResolver.ResolveReferenceWithXmlDocumentationProvider(r))
             .ToArray();
 
@@ -519,15 +485,4 @@ public class CSharpKernel :
 
         _scriptOptions = _scriptOptions.AddReferences(references);
     }
-
-    Task<PackageRestoreResult> ISupportNuget.RestoreAsync() => _lazyPackageRestoreContext.Value.RestoreAsync();
-
-    public IEnumerable<PackageReference> RequestedPackageReferences =>
-        PackageRestoreContext.RequestedPackageReferences;
-
-    public IEnumerable<ResolvedPackageReference> ResolvedPackageReferences =>
-        PackageRestoreContext.ResolvedPackageReferences;
-
-    public IEnumerable<string> RestoreSources =>
-        PackageRestoreContext.RestoreSources;
 }

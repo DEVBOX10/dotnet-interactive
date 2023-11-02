@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
 using FluentAssertions.Execution;
+using Microsoft.DotNet.Interactive.App;
 using Microsoft.DotNet.Interactive.Commands;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
@@ -134,15 +135,24 @@ x
             .Should()
             .ContainSingle<DirectiveNode>()
             .Which;
-        node
-            .GetDiagnostics()
+
+        var diagnostics = node.GetDiagnostics();
+
+        diagnostics
             .Should()
-            .ContainSingle(d => d.Severity == DiagnosticSeverity.Error)
+            .ContainSingle(d => d.Severity == CodeAnalysis.DiagnosticSeverity.Error)
             .Which
-            .Location
-            .SourceSpan
+            .LinePositionSpan.End.Character
             .Should()
-            .BeEquivalentTo(node.Span);
+            .Be(node.Span.End);
+
+        diagnostics
+            .Should()
+            .ContainSingle(d => d.Severity == CodeAnalysis.DiagnosticSeverity.Error)
+            .Which
+            .LinePositionSpan.Start.Character
+            .Should()
+            .Be(node.Span.Start);
     }
 
     [Theory]

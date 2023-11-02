@@ -55,8 +55,7 @@ public class SerializationTests
             .Should()
             .BeEquivalentToRespectingRuntimeTypes(
                 originalEnvelope,
-                o => o.Excluding(e => e.Command.Properties)
-                    .Excluding(e => e.Command.Handler));
+                o => o.Excluding(e => e.Command.Handler));
     }
 
     [Theory]
@@ -84,8 +83,7 @@ public class SerializationTests
             .Should()
             .BeEquivalentToRespectingRuntimeTypes(
                 originalEnvelope,
-                o => o.Excluding(envelope => envelope.Event.Command.Properties)
-                    .Excluding(memberInfo => ignoredProperties.Contains($"{memberInfo.DeclaringType.Name}.{memberInfo.Name}"))
+                o => o.Excluding(memberInfo => ignoredProperties.Contains($"{memberInfo.DeclaringType.Name}.{memberInfo.Name}"))
             );
     }
 
@@ -97,7 +95,6 @@ public class SerializationTests
             .UsingExtension($"{command.GetType().Name}.json")
             .SetInteractive(Debugger.IsAttached);
 
-        command.SetId("command-id");
         command.SetToken("the-token");
 
         var json = KernelCommandEnvelope.Serialize(command);
@@ -113,7 +110,6 @@ public class SerializationTests
             .UsingExtension($"{@event.GetType().Name}.json")
             .SetInteractive(Debugger.IsAttached);
 
-        @event.Command?.SetId("command-id");
         @event.Command?.SetToken("the-token");
             
         var json = KernelEventEnvelope.Serialize(@event);

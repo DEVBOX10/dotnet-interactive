@@ -55,9 +55,8 @@ public class SerializationTests
             .Should()
             .BeEquivalentToRespectingRuntimeTypes(
                 originalEnvelope,
-                o => o.Excluding(e => e.Command.Properties)
-                    .Excluding(e => e.Command.Handler)
-                    .Excluding(info => ignoredProperties.Contains($"{info.DeclaringType.Name}.{info.Name}")));
+                o => o.Excluding(e => e.Command.Handler)
+                      .Excluding(info => ignoredProperties.Contains($"{info.DeclaringType.Name}.{info.Name}")));
     }
 
     [Theory]
@@ -85,8 +84,7 @@ public class SerializationTests
             .Should()
             .BeEquivalentToRespectingRuntimeTypes(
                 originalEnvelope,
-                o => o.Excluding(envelope => envelope.Event.Command.Properties)
-                    .Excluding(info => ignoredProperties.Contains($"{info.DeclaringType.Name}.{info.Name}")));
+                o => o.Excluding(info => ignoredProperties.Contains($"{info.DeclaringType.Name}.{info.Name}")));
     }
 
     [Theory]
@@ -97,7 +95,6 @@ public class SerializationTests
             .UsingExtension($"{command.GetType().Name}.json")
             .SetInteractive(Debugger.IsAttached);
 
-        command.SetId("command-id");
         command.SetToken("the-token");
 
         var json = KernelCommandEnvelope.Serialize(command);
@@ -113,7 +110,6 @@ public class SerializationTests
             .UsingExtension($"{@event.GetType().Name}.json")
             .SetInteractive(Debugger.IsAttached);
 
-        @event.Command.SetId("command-id");
         @event.Command.SetToken("the-token");
 
         var json = KernelEventEnvelope.Serialize(@event);
@@ -167,8 +163,6 @@ public class SerializationTests
 
         IEnumerable<KernelCommand> commands()
         {
-            yield return new ChangeWorkingDirectory("/path/to/somewhere");
-
             yield return new DisplayError("oops!");
 
             yield return new DisplayValue(
@@ -185,7 +179,7 @@ public class SerializationTests
 
             yield return new SendEditableCode("someKernelName", "code");
 
-            yield return new SubmitCode("123", "csharp", SubmissionType.Run);
+            yield return new SubmitCode("123", "csharp");
 
             yield return new UpdateDisplayedValue(
                 new FormattedValue("text/html", "<b>hi!</b>"),
@@ -283,7 +277,7 @@ public class SerializationTests
 
             yield return new DisplayedValueProduced(
                 new HtmlString("<b>hi!</b>"),
-                new SubmitCode("b(\"hi!\")", "csharp", SubmissionType.Run),
+                new SubmitCode("b(\"hi!\")", "csharp"),
                 new[]
                 {
                     new FormattedValue("text/html", "<b>hi!</b>"),
@@ -292,7 +286,7 @@ public class SerializationTests
             yield return new DisplayedValueUpdated(
                 new HtmlString("<b>hi!</b>"),
                 "the-value-id",
-                new SubmitCode("b(\"hi!\")", "csharp", SubmissionType.Run),
+                new SubmitCode("b(\"hi!\")", "csharp"),
                 new[]
                 {
                     new FormattedValue("text/html", "<b>hi!</b>"),
@@ -361,7 +355,7 @@ public class SerializationTests
 
             yield return new ReturnValueProduced(
                 new HtmlString("<b>hi!</b>"),
-                new SubmitCode("b(\"hi!\")", "csharp", SubmissionType.Run),
+                new SubmitCode("b(\"hi!\")", "csharp"),
                 new[]
                 {
                     new FormattedValue("text/html", "<b>hi!</b>"),
@@ -390,15 +384,11 @@ public class SerializationTests
                 });
 
             yield return new StandardOutputValueProduced(
-                new SubmitCode("Console.Write(123);", "csharp", SubmissionType.Run),
+                new SubmitCode("Console.Write(123);", "csharp"),
                 new[]
                 {
                     new FormattedValue("text/plain", "123")
                 });
-
-            yield return new WorkingDirectoryChanged(
-                "some/different/directory",
-                new ChangeWorkingDirectory("some/different/directory"));
 
             yield return new KernelExtensionLoaded(new SubmitCode(@"#r ""nuget:package"" "));
 

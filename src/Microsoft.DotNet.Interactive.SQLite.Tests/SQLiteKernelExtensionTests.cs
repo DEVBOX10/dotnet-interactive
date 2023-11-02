@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Assent;
+using Microsoft.DotNet.Interactive.App;
 using Microsoft.DotNet.Interactive.CSharp;
 using Microsoft.DotNet.Interactive.Events;
 using Microsoft.DotNet.Interactive.Formatting;
@@ -34,7 +35,7 @@ public class SQLiteKernelExtensionTests : IDisposable
             new KeyValueStoreKernel()
         };
 
-        SQLiteKernelConnector.AddSQLiteKernelConnectorTo(kernel);
+        SQLiteKernel.AddSQLiteKernelConnectorTo(kernel);
 
         using var _ = SQLiteConnectionTests.CreateInMemorySQLiteDb(out var connectionString);
 
@@ -62,7 +63,7 @@ SELECT * FROM fruit
             new KeyValueStoreKernel()
         };
 
-        SQLiteKernelConnector.AddSQLiteKernelConnectorTo(kernel);
+        SQLiteKernel.AddSQLiteKernelConnectorTo(kernel);
 
         using var _ = SQLiteConnectionTests.CreateInMemorySQLiteDb(out var connectionString);
 

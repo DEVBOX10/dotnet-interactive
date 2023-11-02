@@ -2,28 +2,31 @@
 
   <PropertyGroup>
     <TargetFramework>net7.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>$(NoWarn);2003;CS8002;(CS8509);VSTHRD002;NU5100</NoWarn>
+    <!-- AssemblyInformationalVersionAttribute contains a non-standard value -->
+    <Deterministic Condition="'$(NCrunch)' == '1'">false</Deterministic>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <PropertyGroup>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
     <IsPackable>true</IsPackable>
-    <PackageDescription>Enables connections over HTTP to application-embedded .NET Interactive kernels, letting you send code to the kernel from Visual Studio Code, access kernel APIs with JavaScript, render data, and access packaged resources.</PackageDescription>
-    <PackageTags>polyglot notebook dotnet interactive connect http signalr</PackageTags>
+    <PackageDescription>Microsoft.DotNet.Interactive.Kernel for making HTTP request using a common syntax.</PackageDescription>
+    <PackageTags>polyglot notebook dotnet interactive http request</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\Microsoft.DotNet.Interactive\Utility\InvocationContextExtensions.cs" Link="Utility\InvocationContextExtensions.cs" />
+    <Compile Include="..\Microsoft.DotNet.Interactive.Http.Parsing\Parsing\*.cs" LinkBase="Parsing" />
   </ItemGroup>
-
+  
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="7.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <ProjectReference Include="..\Microsoft.DotNet.Interactive.Formatting\Microsoft.DotNet.Interactive.Formatting.csproj" />
     <ProjectReference Include="..\Microsoft.DotNet.Interactive\Microsoft.DotNet.Interactive.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="extension.dib" Pack="true" PackagePath="interactive-extensions/dotnet" />
   </ItemGroup>
 
 </Project>

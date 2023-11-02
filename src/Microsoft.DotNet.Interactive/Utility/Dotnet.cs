@@ -21,14 +21,14 @@ public class Dotnet
                             new DirectoryInfo(Directory.GetCurrentDirectory());
     }
 
-    public Task<CommandLineResult> New(string templateName, string args = null)
+    public async Task<CommandLineResult> New(string templateName, string args = null)
     {
         if (string.IsNullOrWhiteSpace(templateName))
         {
             throw new ArgumentException("Value cannot be null or whitespace.", nameof(templateName));
         }
 
-        return Execute($@"new ""{templateName}"" {args}");
+        return await Execute($@"new ""{templateName}"" {args}");
     }
 
     public async Task<AddPackageResult> AddPackage(string packageId, string version = null)
@@ -50,7 +50,6 @@ public class Dotnet
 
     public Task<CommandLineResult> Clean(TimeSpan? timeout = null) =>
         Execute("clean", timeout);
-
 
     public Task<CommandLineResult> Execute(string args, TimeSpan? timeout = null) =>
         CommandLine.Execute(
@@ -85,7 +84,7 @@ public class Dotnet
         }
 
         var versionArg = version is not null ? $"--version {version}" : "";
-            
+
         var args = $@"{packageName}";
         if (toolPath is not null)
         {

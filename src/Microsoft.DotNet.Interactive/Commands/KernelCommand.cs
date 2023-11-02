@@ -14,38 +14,53 @@ public abstract class KernelCommand : IEquatable<KernelCommand>
 {
     private KernelCommand _parent;
     private string _token;
-    private string _id;
+    private List<KernelCommand> _childCommandsToBubbleEventsFrom;
+    private KernelCommand _selfOrFirstUnhiddenAncestor;
 
-    protected KernelCommand(
-        string targetKernelName = null)
+    protected KernelCommand(string targetKernelName = null)
     {
-        Properties = new Dictionary<string, object>(StringComparer.InvariantCultureIgnoreCase);
         TargetKernelName = targetKernelName;
         RoutingSlip = new CommandRoutingSlip();
     }
 
-    [JsonIgnore]
+    [JsonIgnore] 
     public KernelCommandInvocation Handler { get; set; }
 
-    [JsonIgnore]
-    public KernelCommand Parent
+    [JsonIgnore] public KernelCommand Parent => _parent;
+
+    public void SetParent(KernelCommand parent, bool bubbleEvents = false)
     {
-        get => _parent;
-        internal set
+        if (parent is null)
         {
-            if (_parent is null)
+            throw new ArgumentNullException(nameof(parent));
+        }
+
+        if (_parent is null)
+        {
+            _parent = parent;
+
+            if (_token is not null)
             {
-                _parent = value;
+                _token = null;
             }
-            else if (_parent != value)
+
+            if (_parent._token is null)
             {
-                throw new InvalidOperationException("Parent cannot be changed.");
+                _parent.GetOrCreateToken();
             }
+
+            GetOrCreateToken();
+        }
+        else if (!_parent.Equals(parent))
+        {
+            throw new InvalidOperationException("Parent cannot be changed.");
+        }
+
+        if (bubbleEvents)
+        {
+            _parent.ResultShouldIncludeEventsFrom(this);
         }
     }
-
-    [JsonIgnore]
-    public IDictionary<string, object> Properties { get; }
 
     public string TargetKernelName { get; internal set; }
 
@@ -87,11 +102,11 @@ public abstract class KernelCommand : IEquatable<KernelCommand>
             return _token;
         }
 
-        _token = CreateToken();
+        _token = CreateRootToken();
 
         return _token;
 
-        static string CreateToken()
+        static string CreateRootToken()
         {
 #if DEBUG
             var token = Interlocked.Increment(ref _nextRootToken);
@@ -107,15 +122,60 @@ public abstract class KernelCommand : IEquatable<KernelCommand>
     private static int _nextRootToken = 0;
 #endif
 
-    [JsonIgnore] internal SchedulingScope SchedulingScope { get; set; }
+    [JsonIgnore] 
+    internal SchedulingScope SchedulingScope { get; set; }
 
-    [JsonIgnore] internal bool? ShouldPublishCompletionEvent { get; set; }
+    [JsonIgnore] 
+    internal bool? ShouldPublishCompletionEvent { get; set; }
 
     [JsonIgnore]
     public ParseResult KernelChooserParseResult { get; internal set; }
 
-    [JsonIgnore]
-    public CommandRoutingSlip RoutingSlip { get; }
+    [JsonIgnore] public CommandRoutingSlip RoutingSlip { get; }
+
+    internal bool WasProxied { get; set; }
+
+    private void ResultShouldIncludeEventsFrom(KernelCommand childCommand)
+    {
+        if (_childCommandsToBubbleEventsFrom is null)
+        {
+            _childCommandsToBubbleEventsFrom = new();
+        }
+
+        _childCommandsToBubbleEventsFrom.Add(childCommand);
+    }
+
+    internal bool ShouldResultIncludeEventsFrom(KernelCommand childCommand)
+    {
+        if (WasProxied &&
+            childCommand.IsSelfOrDescendantOf(this))
+        {
+            return true;
+        }
+
+        if (_childCommandsToBubbleEventsFrom is null)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < _childCommandsToBubbleEventsFrom.Count; i++)
+        {
+            var command = _childCommandsToBubbleEventsFrom[i];
+
+            if (command.Equals(childCommand))
+            {
+                return true;
+            }
+
+            if (command.WasProxied &&
+                command.IsSelfOrDescendantOf(this))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public virtual Task InvokeAsync(KernelInvocationContext context)
     {
@@ -126,24 +186,7 @@ public abstract class KernelCommand : IEquatable<KernelCommand>
 
         return Handler(this, context);
     }
-
-    public void SetId(string id)
-    {
-        _id = id;
-    }
-
-    internal string GetOrCreateId()
-    {
-        if (_id is not null)
-        {
-            return _id;
-        }
-
-        SetId(Guid.NewGuid().ToString("N"));
-
-        return _id;
-    }
-
+    
     public bool Equals(KernelCommand other)
     {
         if (ReferenceEquals(this, other))
@@ -151,19 +194,16 @@ public abstract class KernelCommand : IEquatable<KernelCommand>
             return true;
         }
 
-        if (other is null)
+        if (_token is not null && other?._token is not null)
         {
-            return false;
+            var tokensAreEqual = _token == other._token;
+
+            return tokensAreEqual;
         }
 
-        return GetOrCreateId() == other.GetOrCreateId();
+        return false;
     }
-
-    public override int GetHashCode()
-    {
-        return GetOrCreateId().GetHashCode();
-    }
-
+ 
     internal bool IsSelfOrDescendantOf(KernelCommand other)
     {
         return GetOrCreateToken().StartsWith(other.GetOrCreateToken());
@@ -182,5 +222,32 @@ public abstract class KernelCommand : IEquatable<KernelCommand>
         var parts = token.Split(new[] { '.' });
 
         return parts[0];
+    }
+
+    internal virtual bool IsHidden => false;
+
+    internal KernelCommand SelfOrFirstUnhiddenAncestor
+    {
+        get
+        {
+            if (_selfOrFirstUnhiddenAncestor is null)
+            {
+                var command = this;
+
+                while (command.IsHidden)
+                {
+                    command = command.Parent;
+
+                    if (command is null)
+                    {
+                        return null;
+                    }
+                }
+
+                _selfOrFirstUnhiddenAncestor = command;
+            }
+
+            return _selfOrFirstUnhiddenAncestor;
+        }
     }
 }

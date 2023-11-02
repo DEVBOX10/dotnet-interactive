@@ -186,12 +186,6 @@ type FSharpKernel () as this =
         let errorId = sprintf "FS%04i" error.ErrorNumber
         Diagnostic(linePositionSpan, severity, errorId, error.Message)
 
-    let handleChangeWorkingDirectory (changeDirectory: ChangeWorkingDirectory) (context: KernelInvocationContext) =
-        task {
-            this.workingDirectory <- changeDirectory.WorkingDirectory;
-            return Task.CompletedTask;
-        }
-
     let handleSubmitCode (codeSubmission: SubmitCode) (context: KernelInvocationContext) =
         task {
             let codeSubmissionReceived = CodeSubmissionReceived(codeSubmission)
@@ -394,13 +388,6 @@ type FSharpKernel () as this =
                 context.Fail(requestValue, message=(sprintf "Value '%s' not found in kernel %s" requestValue.Name this.Name))
         }
 
-    let createPackageRestoreContext registerForDisposal =
-        let packageRestoreContext = new PackageRestoreContext()
-        do registerForDisposal(fun () -> packageRestoreContext.Dispose())
-        packageRestoreContext
-
-    let _packageRestoreContext = lazy createPackageRestoreContext this.RegisterForDisposal
-
     member this.GetValues() =
         script.Value.Fsi.GetBoundValues()
         |> List.filter (fun x -> x.Name <> "it") // don't report special variable `it`
@@ -421,13 +408,27 @@ type FSharpKernel () as this =
         | _ ->
             false
 
-    member _.RestoreSources = _packageRestoreContext.Value.RestoreSources;
+    member this.AddAssemblyReferencesAndPackageRoots(assemblyReferences: IEnumerable<string>, packageRoots: IEnumerable<string>) = 
+        let sb = StringBuilder()
+        let hashset = HashSet()
 
-    member _.RequestedPackageReferences = _packageRestoreContext.Value.RequestedPackageReferences;
+        for packageRoot in packageRoots do
+            match packageRoot with
+            | null -> ()
+            | root ->
+                if hashset.Add(root) then
+                    if File.Exists root then
+                        sb.AppendFormat("#I @\"{0}\"", root) |> ignore
+                        sb.Append(Environment.NewLine) |> ignore
+            
+        for assemblyReference in assemblyReferences do
+            if hashset.Add(assemblyReference) then
+                if File.Exists assemblyReference then
+                    sb.AppendFormat("#r @\"{0}\"", assemblyReference) |> ignore
+                    sb.Append(Environment.NewLine) |> ignore
 
-    member _.ResolvedPackageReferences = _packageRestoreContext.Value.ResolvedPackageReferences;
-
-    member _.PackageRestoreContext = _packageRestoreContext.Value
+        let command = new SubmitCode(sb.ToString(), "fsharp")
+        this.DeferCommand(command)
 
     interface IKernelCommandHandler<RequestCompletions> with
         member this.HandleAsync(command: RequestCompletions, context: KernelInvocationContext) = handleRequestCompletions command context
@@ -453,47 +454,3 @@ type FSharpKernel () as this =
 
     interface IKernelCommandHandler<SubmitCode> with
         member this.HandleAsync(command: SubmitCode, context: KernelInvocationContext) = handleSubmitCode command context
-
-    interface IKernelCommandHandler<ChangeWorkingDirectory> with
-        member this.HandleAsync(command: ChangeWorkingDirectory, context: KernelInvocationContext) = handleChangeWorkingDirectory command context 
-
-    interface ISupportNuget with
-        member _.TryAddRestoreSource(source: string) =
-            this.PackageRestoreContext.TryAddRestoreSource source
-
-        member _.GetOrAddPackageReference(packageName: string, packageVersion: string) =
-            this.PackageRestoreContext.GetOrAddPackageReference (packageName, packageVersion)
-
-        member _.RestoreAsync() = 
-            this.PackageRestoreContext.RestoreAsync()
-
-        member _.RestoreSources = 
-            this.PackageRestoreContext.RestoreSources
-
-        member _.RequestedPackageReferences = 
-            this.PackageRestoreContext.RequestedPackageReferences
-
-        member _.ResolvedPackageReferences =
-            this.PackageRestoreContext.ResolvedPackageReferences
-
-        member _.RegisterResolvedPackageReferences (packageReferences: IReadOnlyList<ResolvedPackageReference>) =
-            // Generate #r and #I from packageReferences
-            let sb = StringBuilder()
-            let hashset = HashSet()
-
-            for reference in packageReferences do
-                for assembly in reference.AssemblyPaths do
-                    if hashset.Add(assembly) then
-                        if File.Exists assembly then
-                            sb.AppendFormat("#r @\"{0}\"", assembly) |> ignore
-                            sb.Append(Environment.NewLine) |> ignore
-
-                match reference.PackageRoot with
-                | null -> ()
-                | root ->
-                    if hashset.Add(root) then
-                        if File.Exists root then
-                            sb.AppendFormat("#I @\"{0}\"", root) |> ignore
-                            sb.Append(Environment.NewLine) |> ignore
-            let command = new SubmitCode(sb.ToString(), "fsharp")
-            this.DeferCommand(command)

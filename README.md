@@ -20,10 +20,10 @@ The following languages are supported by Polyglot Notebooks and .NET Interactive
 | JavaScript                    |        ✅       |          
 | SQL                           |        ✅       |   
 | KQL ([Kusto Query Language](https://learn.microsoft.com/en-us/azure/data-explorer/kusto/query/))    |        ✅       |  
-| [Python](docs/jupyter-in-polyglot-notebooks.md)   |        ✅       |
-| [R](docs/jupyter-in-polyglot-notebooks.md)   |        ✅       |      
-| HTML*                         |        ⛔       |     
-| [Mermaid](https://mermaid.js.org/intro/)*                      |        ⛔       |        
+| [Python](docs/jupyter-in-polyglot-notebooks.md)  |        ✅       |
+| [R](docs/jupyter-in-polyglot-notebooks.md)       |        ✅       |      
+| HTML                         |        ⛔         |     
+| [Mermaid](https://mermaid.js.org/intro/)         |        ⛔       |        
 
 ### Polyglot Notebooks
 
@@ -53,7 +53,7 @@ The multi-language experience of .NET Interactive is truly a collaborative effor
 
 - **PowerShell Team:** PowerShell support
 - **Azure Data Team:** SQL and KQL support
-- **Azure Notebooks Team**: Python, R, and Jupyter subkernel support (coming soon...)
+- **Azure Notebooks Team**: Python, R, and Jupyter subkernel support
 
 ## Telemetry
 

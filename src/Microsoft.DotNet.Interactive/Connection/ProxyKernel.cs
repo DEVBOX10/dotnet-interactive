@@ -17,7 +17,6 @@ public sealed class ProxyKernel : Kernel
     private readonly IKernelCommandAndEventSender _sender;
     private readonly IKernelCommandAndEventReceiver _receiver;
     private ExecutionContext _executionContext;
-    private string _suppressCompletionsForCommandId;
 
     private readonly Dictionary<string, (KernelCommand command, ExecutionContext executionContext, TaskCompletionSource<KernelEvent> completionSource, KernelInvocationContext
         invocationContext)> _inflight = new();
@@ -64,6 +63,8 @@ public sealed class ProxyKernel : Kernel
         RegisterForDisposal(subscription);
     }
 
+    internal override bool AcceptsUnknownDirectives => true;
+
     private void UpdateKernelInfoFromEvent(KernelInfoProduced kernelInfoProduced)
     {
         var kernelInfo = kernelInfoProduced.KernelInfo;
@@ -72,6 +73,8 @@ public sealed class ProxyKernel : Kernel
 
     private Task HandleByForwardingToRemoteAsync(KernelCommand command, KernelInvocationContext context)
     {
+        command.WasProxied = true;
+
         if (command.OriginUri is null)
         {
             if (context.HandlingKernel == this)
@@ -82,7 +85,6 @@ public sealed class ProxyKernel : Kernel
 
         _executionContext = ExecutionContext.Capture();
         var token = command.GetOrCreateToken();
-        command.GetOrCreateId();
 
         command.OriginUri ??= KernelInfo.Uri;
 
@@ -98,6 +100,7 @@ public sealed class ProxyKernel : Kernel
                 return Task.CompletedTask;
             }
         }
+
         var targetKernelName = command.TargetKernelName;
         if (command.TargetKernelName == Name)
         {
@@ -126,7 +129,6 @@ public sealed class ProxyKernel : Kernel
         return completionSource.Task.ContinueWith(te =>
         {
             command.TargetKernelName = targetKernelName;
-
 
             if (te.Result is CommandFailed cf)
             {
@@ -186,7 +188,6 @@ public sealed class ProxyKernel : Kernel
 
         var inflightParents = _inflight.Values.Where(v => kernelEvent.Command.IsSelfOrDescendantOf(v.command)).ToArray();
 
-        // FIX: (DelegatePublication) 
         if (inflightParents.Length == 1)
         {
             pending = inflightParents.Single();
@@ -211,10 +212,6 @@ public sealed class ProxyKernel : Kernel
                 case CommandSucceeded cs when areSameCommand:
                     _inflight.Remove(rootToken);
                     pending.completionSource.TrySetResult(cs);
-                    break;
-                case CommandFailed _ when kernelEvent.Command.GetOrCreateId() == _suppressCompletionsForCommandId:
-                case CommandSucceeded _ when kernelEvent.Command.GetOrCreateId() == _suppressCompletionsForCommandId:
-                    _suppressCompletionsForCommandId = null;
                     break;
                 case KernelInfoProduced kip when kip.KernelInfo.Uri == KernelInfo.RemoteUri:
                     {

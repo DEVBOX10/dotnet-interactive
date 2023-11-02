@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.CommandLine;
 using System.IO.Pipes;
 using System.Threading.Tasks;
@@ -25,13 +25,12 @@ namespace WpfConnect
         {
             base.OnStartup(e);
             _kernel = new CompositeKernel();
-            _kernel.UseLogMagicCommand();
-
-            SetUpNamedPipeKernelConnection();
 
             AddDispatcherMagicCommand(_kernel);
 
             CSharpKernel csharpKernel = RegisterCSharpKernel();
+
+            SetUpNamedPipeKernelConnection();
 
             var _ = Task.Run(async () =>
             {
@@ -39,7 +38,7 @@ namespace WpfConnect
                 await csharpKernel.SendAsync(new SubmitCode(@$"#r ""{typeof(App).Assembly.Location}""
 using {nameof(WpfConnect)};"));
                 //Add the WPF app as a variable that can be accessed
-                await csharpKernel.SetValueAsync("App", this);
+                await csharpKernel.SetValueAsync("App", this, GetType());
 
                 //Start named pipe
                 _kernel.AddKernelConnector(new ConnectNamedPipeCommand());
